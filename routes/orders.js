@@ -1,6 +1,6 @@
 const express = require("express");
 const db = require("../db");
-const { optionalAuth } = require("../middleware/auth");
+const { requireAuth } = require("../middleware/auth");
 
 const router = express.Router();
 
@@ -8,7 +8,7 @@ function isPositiveInteger(value) {
   return Number.isInteger(Number(value)) && Number(value) > 0;
 }
 
-router.post("/", optionalAuth, async (req, res) => {
+router.post("/", requireAuth, async (req, res) => {
   const connection = await db.getConnection();
 
   try {
