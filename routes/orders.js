@@ -8,6 +8,28 @@ function isPositiveInteger(value) {
   return Number.isInteger(Number(value)) && Number(value) > 0;
 }
 
+async function getItemsByOrderIds(orderIds) {
+  if (orderIds.length === 0) return {};
+
+  const placeholders = orderIds.map(() => "?").join(",");
+  const [items] = await db.query(
+    `SELECT order_id, food_id, food_name, price, quantity, subtotal
+     FROM order_details
+     WHERE order_id IN (${placeholders})
+     ORDER BY id ASC`,
+    orderIds
+  );
+
+  return items.reduce((map, item) => {
+    if (!map[item.order_id]) {
+      map[item.order_id] = [];
+    }
+
+    map[item.order_id].push(item);
+    return map;
+  }, {});
+}
+
 router.post("/", requireAuth, async (req, res) => {
   const connection = await db.getConnection();
 
@@ -72,9 +94,10 @@ router.post("/", requireAuth, async (req, res) => {
 
     const [orderResult] = await connection.query(
       `INSERT INTO orders
-        (customer_name, phone, address, note, total_price, status)
-       VALUES (?, ?, ?, ?, ?, 'pending')`,
+        (user_id, customer_name, phone, address, note, total_price, status)
+       VALUES (?, ?, ?, ?, ?, ?, 'pending')`,
       [
+        req.user.id,
         customerName.trim(),
         customerPhone.trim(),
         customerAddress.trim(),
@@ -120,7 +143,53 @@ router.post("/", requireAuth, async (req, res) => {
   }
 });
 
-router.get("/:id", async (req, res) => {
+router.get("/", requireAuth, async (req, res) => {
+  try {
+    const { q = "", date = "", month = "", year = "" } = req.query;
+    const conditions = ["user_id = ?"];
+    const params = [req.user.id];
+
+    if (q) {
+      conditions.push("(id = ? OR customer_name LIKE ? OR phone LIKE ? OR address LIKE ?)");
+      params.push(Number(q) || 0, `%${q}%`, `%${q}%`, `%${q}%`);
+    }
+
+    if (date) {
+      conditions.push("DATE(created_at) = ?");
+      params.push(date);
+    }
+
+    if (month) {
+      conditions.push("MONTH(created_at) = ?");
+      params.push(Number(month));
+    }
+
+    if (year) {
+      conditions.push("YEAR(created_at) = ?");
+      params.push(Number(year));
+    }
+
+    const [orders] = await db.query(
+      `SELECT id, customer_name, phone, address, note, total_price, status, created_at
+       FROM orders
+       WHERE ${conditions.join(" AND ")}
+       ORDER BY created_at DESC, id DESC`,
+      params
+    );
+
+    const itemsByOrder = await getItemsByOrderIds(orders.map(order => order.id));
+
+    res.json(orders.map(order => ({
+      ...order,
+      items: itemsByOrder[order.id] || []
+    })));
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Loi server" });
+  }
+});
+
+router.get("/:id", requireAuth, async (req, res) => {
   try {
     const orderId = Number(req.params.id);
 
@@ -131,8 +200,8 @@ router.get("/:id", async (req, res) => {
     const [orders] = await db.query(
       `SELECT id, customer_name, phone, address, note, total_price, status, created_at
        FROM orders
-       WHERE id = ?`,
-      [orderId]
+       WHERE id = ? AND user_id = ?`,
+      [orderId, req.user.id]
     );
 
     if (orders.length === 0) {
