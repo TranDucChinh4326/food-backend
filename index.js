@@ -9,10 +9,30 @@ const allowedOrigins = (process.env.CORS_ORIGIN || "")
   .split(",")
   .map(origin => origin.trim())
   .filter(Boolean);
+const allowedPreviewSuffixes = (process.env.CORS_PREVIEW_SUFFIX || ".food-shop-b0p.pages.dev")
+  .split(",")
+  .map(suffix => suffix.trim())
+  .filter(Boolean);
+
+function isAllowedOrigin(origin) {
+  if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+    return true;
+  }
+
+  try {
+    const { hostname, protocol } = new URL(origin);
+
+    return protocol === "https:" && allowedPreviewSuffixes.some(suffix => (
+      hostname.endsWith(suffix) && hostname !== suffix.slice(1)
+    ));
+  } catch (error) {
+    return false;
+  }
+}
 
 app.use(cors({
   origin(origin, callback) {
-    if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+    if (isAllowedOrigin(origin)) {
       callback(null, true);
       return;
     }
