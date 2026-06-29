@@ -15,6 +15,46 @@ function signToken(user) {
   );
 }
 
+async function getOrCreateSocialUser({ fullname, email, provider, providerId }) {
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+
+  if (!normalizedEmail) {
+    const error = new Error("Tai khoan social chua cap quyen email");
+    error.status = 400;
+    throw error;
+  }
+
+  const [users] = await db.query("SELECT * FROM users WHERE email = ?", [normalizedEmail]);
+
+  if (users.length > 0) {
+    return users[0];
+  }
+
+  const fallbackPassword = await bcrypt.hash(`${provider}:${providerId}:${Date.now()}`, 10);
+  const [result] = await db.query(
+    "INSERT INTO users (fullname, email, password) VALUES (?, ?, ?)",
+    [String(fullname || normalizedEmail).trim(), normalizedEmail, fallbackPassword]
+  );
+
+  const [newUsers] = await db.query("SELECT * FROM users WHERE id = ?", [result.insertId]);
+  return newUsers[0];
+}
+
+function sendAuthResponse(res, user) {
+  const token = signToken(user);
+
+  res.json({
+    message: "Dang nhap thanh cong",
+    token,
+    user: {
+      id: user.id,
+      fullname: user.fullname,
+      email: user.email,
+      role: user.role
+    }
+  });
+}
+
 router.post("/register", async (req, res) => {
   try {
     const { fullname, email, password } = req.body;
@@ -70,21 +110,76 @@ router.post("/login", async (req, res) => {
       return res.status(400).json({ message: "Email hoac mat khau khong dung" });
     }
 
-    const token = signToken(user);
-
-    res.json({
-      message: "Dang nhap thanh cong",
-      token,
-      user: {
-        id: user.id,
-        fullname: user.fullname,
-        email: user.email,
-        role: user.role
-      }
-    });
+    sendAuthResponse(res, user);
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Loi server" });
+  }
+});
+
+router.post("/google", async (req, res) => {
+  try {
+    const { accessToken } = req.body;
+
+    if (!accessToken) {
+      return res.status(400).json({ message: "Thieu Google access token" });
+    }
+
+    const response = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    });
+    const profile = await response.json();
+
+    if (!response.ok || !profile.email) {
+      return res.status(401).json({ message: "Khong xac thuc duoc tai khoan Google" });
+    }
+
+    const user = await getOrCreateSocialUser({
+      fullname: profile.name,
+      email: profile.email,
+      provider: "google",
+      providerId: profile.sub
+    });
+
+    sendAuthResponse(res, user);
+  } catch (error) {
+    console.error(error);
+    res.status(error.status || 500).json({ message: error.message || "Loi server" });
+  }
+});
+
+router.post("/facebook", async (req, res) => {
+  try {
+    const { accessToken } = req.body;
+
+    if (!accessToken) {
+      return res.status(400).json({ message: "Thieu Facebook access token" });
+    }
+
+    const url = new URL("https://graph.facebook.com/me");
+    url.searchParams.set("fields", "id,name,email");
+    url.searchParams.set("access_token", accessToken);
+
+    const response = await fetch(url);
+    const profile = await response.json();
+
+    if (!response.ok || !profile.email) {
+      return res.status(401).json({ message: "Khong xac thuc duoc tai khoan Facebook hoac chua cap quyen email" });
+    }
+
+    const user = await getOrCreateSocialUser({
+      fullname: profile.name,
+      email: profile.email,
+      provider: "facebook",
+      providerId: profile.id
+    });
+
+    sendAuthResponse(res, user);
+  } catch (error) {
+    console.error(error);
+    res.status(error.status || 500).json({ message: error.message || "Loi server" });
   }
 });
 
