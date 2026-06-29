@@ -201,4 +201,77 @@ router.get("/me", requireAuth, async (req, res) => {
   }
 });
 
+router.put("/me", requireAuth, async (req, res) => {
+  try {
+    const { fullname, email } = req.body;
+    const normalizedEmail = String(email || "").trim().toLowerCase();
+
+    if (!fullname || !normalizedEmail) {
+      return res.status(400).json({ message: "Vui long nhap ho ten va email" });
+    }
+
+    const [oldUsers] = await db.query(
+      "SELECT id FROM users WHERE email = ? AND id <> ?",
+      [normalizedEmail, req.user.id]
+    );
+
+    if (oldUsers.length > 0) {
+      return res.status(400).json({ message: "Email da duoc tai khoan khac su dung" });
+    }
+
+    await db.query(
+      "UPDATE users SET fullname = ?, email = ? WHERE id = ?",
+      [fullname.trim(), normalizedEmail, req.user.id]
+    );
+
+    const [users] = await db.query(
+      "SELECT id, fullname, email, role, created_at FROM users WHERE id = ?",
+      [req.user.id]
+    );
+
+    res.json({ message: "Cap nhat tai khoan thanh cong", user: users[0] });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Loi server" });
+  }
+});
+
+router.put("/password", requireAuth, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: "Vui long nhap day du mat khau" });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ message: "Mat khau moi toi thieu 6 ky tu" });
+    }
+
+    const [users] = await db.query("SELECT * FROM users WHERE id = ?", [req.user.id]);
+
+    if (users.length === 0) {
+      return res.status(404).json({ message: "Khong tim thay nguoi dung" });
+    }
+
+    const isMatch = await bcrypt.compare(currentPassword, users[0].password);
+
+    if (!isMatch) {
+      return res.status(400).json({ message: "Mat khau hien tai khong dung" });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    await db.query("UPDATE users SET password = ? WHERE id = ?", [
+      hashedPassword,
+      req.user.id
+    ]);
+
+    res.json({ message: "Doi mat khau thanh cong" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Loi server" });
+  }
+});
+
 module.exports = router;
