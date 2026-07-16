@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS users (
   fullname VARCHAR(150) NOT NULL,
   email VARCHAR(150) NOT NULL,
   password VARCHAR(255) NOT NULL,
+  password_set TINYINT DEFAULT 1,
   role VARCHAR(20) DEFAULT 'USER',
   email_verified TINYINT DEFAULT 0,
   email_verified_at TIMESTAMP NULL DEFAULT NULL,

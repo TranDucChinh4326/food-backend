@@ -22,7 +22,8 @@ function publicUser(user) {
     fullname: user.fullname,
     email: user.email,
     role: user.role,
-    emailVerified: Boolean(user.email_verified)
+    emailVerified: Boolean(user.email_verified),
+    passwordSet: Boolean(user.password_set ?? true)
   };
 }
 
@@ -212,8 +213,8 @@ async function getOrCreateSocialUser({ fullname, email, provider, providerId, al
   const fallbackPassword = await bcrypt.hash(`${normalizedProvider}:${normalizedProviderId}:${Date.now()}`, 10);
   const isVerifiedSocialEmail = normalizedProvider === "google";
   const [result] = await db.query(
-    `INSERT INTO users (fullname, email, password, email_verified, email_verified_at)
-     VALUES (?, ?, ?, ?, ${isVerifiedSocialEmail ? "NOW()" : "NULL"})`,
+    `INSERT INTO users (fullname, email, password, password_set, email_verified, email_verified_at)
+     VALUES (?, ?, ?, 0, ?, ${isVerifiedSocialEmail ? "NOW()" : "NULL"})`,
     [
       String(fullname || normalizedEmail).trim(),
       normalizedEmail,
@@ -555,7 +556,7 @@ router.post("/social/link/:provider", requireAuth, async (req, res) => {
 router.get("/me", requireAuth, async (req, res) => {
   try {
     const [users] = await db.query(
-      "SELECT id, fullname, email, role, email_verified AS emailVerified, created_at FROM users WHERE id = ?",
+      "SELECT id, fullname, email, role, email_verified AS emailVerified, password_set AS passwordSet, created_at FROM users WHERE id = ?",
       [req.user.id]
     );
 
@@ -602,7 +603,7 @@ router.put("/me", requireAuth, async (req, res) => {
     );
 
     const [users] = await db.query(
-      "SELECT id, fullname, email, role, email_verified AS emailVerified, created_at FROM users WHERE id = ?",
+      "SELECT id, fullname, email, role, email_verified AS emailVerified, password_set AS passwordSet, created_at FROM users WHERE id = ?",
       [req.user.id]
     );
 
@@ -636,8 +637,8 @@ router.put("/password", requireAuth, async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
 
-    if (!currentPassword || !newPassword) {
-      return res.status(400).json({ message: "Vui long nhap day du mat khau" });
+    if (!newPassword) {
+      return res.status(400).json({ message: "Vui long nhap mat khau moi" });
     }
 
     if (newPassword.length < 6) {
@@ -650,7 +651,15 @@ router.put("/password", requireAuth, async (req, res) => {
       return res.status(404).json({ message: "Khong tim thay nguoi dung" });
     }
 
-    const isMatch = await bcrypt.compare(currentPassword, users[0].password);
+    const hasPasswordSet = Boolean(users[0].password_set ?? true);
+
+    if (hasPasswordSet && !currentPassword) {
+      return res.status(400).json({ message: "Vui long nhap mat khau hien tai" });
+    }
+
+    const isMatch = hasPasswordSet
+      ? await bcrypt.compare(currentPassword, users[0].password)
+      : true;
 
     if (!isMatch) {
       return res.status(400).json({ message: "Mat khau hien tai khong dung" });
@@ -658,12 +667,12 @@ router.put("/password", requireAuth, async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-    await db.query("UPDATE users SET password = ? WHERE id = ?", [
+    await db.query("UPDATE users SET password = ?, password_set = 1 WHERE id = ?", [
       hashedPassword,
       req.user.id
     ]);
 
-    res.json({ message: "Doi mat khau thanh cong" });
+    res.json({ message: hasPasswordSet ? "Doi mat khau thanh cong" : "Tao mat khau dang nhap thanh cong" });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Loi server" });
