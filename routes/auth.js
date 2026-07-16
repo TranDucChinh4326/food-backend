@@ -15,8 +15,14 @@ function signToken(user) {
   );
 }
 
-async function getOrCreateSocialUser({ fullname, email, provider, providerId }) {
-  const normalizedEmail = String(email || "").trim().toLowerCase();
+async function getOrCreateSocialUser({ fullname, email, provider, providerId, allowEmailFallback = false }) {
+  const normalizedProvider = String(provider || "social").trim().toLowerCase();
+  const normalizedProviderId = String(providerId || "").trim();
+  let normalizedEmail = String(email || "").trim().toLowerCase();
+
+  if (!normalizedEmail && allowEmailFallback && normalizedProviderId) {
+    normalizedEmail = `${normalizedProvider}_${normalizedProviderId}@foodhub.local`;
+  }
 
   if (!normalizedEmail) {
     const error = new Error("Tai khoan social chua cap quyen email");
@@ -30,7 +36,7 @@ async function getOrCreateSocialUser({ fullname, email, provider, providerId }) 
     return users[0];
   }
 
-  const fallbackPassword = await bcrypt.hash(`${provider}:${providerId}:${Date.now()}`, 10);
+  const fallbackPassword = await bcrypt.hash(`${normalizedProvider}:${normalizedProviderId}:${Date.now()}`, 10);
   const [result] = await db.query(
     "INSERT INTO users (fullname, email, password) VALUES (?, ?, ?)",
     [String(fullname || normalizedEmail).trim(), normalizedEmail, fallbackPassword]
@@ -140,7 +146,8 @@ router.post("/google", async (req, res) => {
       fullname: profile.name,
       email: profile.email,
       provider: "google",
-      providerId: profile.sub
+      providerId: profile.sub,
+      allowEmailFallback: false
     });
 
     sendAuthResponse(res, user);
@@ -165,15 +172,16 @@ router.post("/facebook", async (req, res) => {
     const response = await fetch(url);
     const profile = await response.json();
 
-    if (!response.ok || !profile.email) {
-      return res.status(401).json({ message: "Khong xac thuc duoc tai khoan Facebook hoac chua cap quyen email" });
+    if (!response.ok || !profile.id) {
+      return res.status(401).json({ message: "Khong xac thuc duoc tai khoan Facebook" });
     }
 
     const user = await getOrCreateSocialUser({
       fullname: profile.name,
       email: profile.email,
       provider: "facebook",
-      providerId: profile.id
+      providerId: profile.id,
+      allowEmailFallback: true
     });
 
     sendAuthResponse(res, user);
