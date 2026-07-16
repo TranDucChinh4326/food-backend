@@ -1,5 +1,6 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
+const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const db = require("../db");
 const { requireAuth } = require("../middleware/auth");
@@ -20,8 +21,76 @@ function publicUser(user) {
     id: user.id,
     fullname: user.fullname,
     email: user.email,
-    role: user.role
+    role: user.role,
+    emailVerified: Boolean(user.email_verified)
   };
+}
+
+function getFrontendUrl() {
+  return (process.env.FRONTEND_URL || process.env.CORS_ORIGIN || "http://localhost:5500")
+    .split(",")[0]
+    .trim()
+    .replace(/\/$/, "");
+}
+
+function hashToken(token) {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+function normalizeEmail(email) {
+  return String(email || "").trim().toLowerCase();
+}
+
+function shouldExposeVerificationUrl(emailSent) {
+  return !emailSent || process.env.EMAIL_DEBUG_LINK === "true";
+}
+
+async function createEmailVerification(userId) {
+  const token = crypto.randomBytes(32).toString("hex");
+  const tokenHash = hashToken(token);
+
+  await db.query(
+    "DELETE FROM email_verification_tokens WHERE user_id = ? AND used_at IS NULL",
+    [userId]
+  );
+  await db.query(
+    "INSERT INTO email_verification_tokens (user_id, token_hash, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 30 MINUTE))",
+    [userId, tokenHash]
+  );
+
+  return `${getFrontendUrl()}/verify-email.html?token=${token}`;
+}
+
+async function sendVerificationEmail(email, fullname, verificationUrl) {
+  if (!process.env.RESEND_API_KEY || !process.env.MAIL_FROM) {
+    return false;
+  }
+
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      from: process.env.MAIL_FROM,
+      to: email,
+      subject: "Xac thuc tai khoan FoodHub",
+      html: `
+        <p>Chao ${String(fullname || "ban")},</p>
+        <p>Bam vao lien ket ben duoi de xac thuc tai khoan FoodHub:</p>
+        <p><a href="${verificationUrl}">${verificationUrl}</a></p>
+        <p>Lien ket het han sau 30 phut.</p>
+      `
+    })
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Khong gui duoc email xac thuc: ${errorBody}`);
+  }
+
+  return true;
 }
 
 async function findSocialUser(provider, providerId) {
@@ -37,15 +106,31 @@ async function findSocialUser(provider, providerId) {
 }
 
 async function linkSocialAccount(userId, { fullname, email, provider, providerId }) {
+  const normalizedProvider = String(provider || "").trim().toLowerCase();
+  const normalizedEmail = normalizeEmail(email);
+
   const [linkedAccounts] = await db.query(
     "SELECT user_id FROM social_accounts WHERE provider = ? AND provider_user_id = ?",
-    [provider, providerId]
+    [normalizedProvider, providerId]
   );
 
   if (linkedAccounts.length > 0 && Number(linkedAccounts[0].user_id) !== Number(userId)) {
     const error = new Error("Tai khoan social nay da lien ket voi tai khoan khac");
     error.status = 400;
     throw error;
+  }
+
+  if (normalizedProvider === "google" && normalizedEmail) {
+    const [emailUsers] = await db.query(
+      "SELECT id FROM users WHERE email = ? AND id <> ?",
+      [normalizedEmail, userId]
+    );
+
+    if (emailUsers.length > 0) {
+      const error = new Error("Email Google nay da thuoc tai khoan khac");
+      error.status = 400;
+      throw error;
+    }
   }
 
   await db.query(
@@ -56,14 +141,31 @@ async function linkSocialAccount(userId, { fullname, email, provider, providerId
        provider_user_id = VALUES(provider_user_id),
        provider_email = VALUES(provider_email),
        provider_name = VALUES(provider_name)`,
-    [userId, provider, providerId, email || null, fullname || null]
+    [userId, normalizedProvider, providerId, normalizedEmail || null, fullname || null]
   );
+
+  if (normalizedProvider === "google" && normalizedEmail) {
+    await db.query(
+      `UPDATE users
+       SET email = ?,
+           fullname = ?,
+           email_verified = 1,
+           email_verified_at = COALESCE(email_verified_at, NOW())
+       WHERE id = ?`,
+      [normalizedEmail, String(fullname || normalizedEmail).trim(), userId]
+    );
+  } else if (fullname) {
+    await db.query("UPDATE users SET fullname = ? WHERE id = ?", [
+      String(fullname).trim(),
+      userId
+    ]);
+  }
 }
 
 async function getOrCreateSocialUser({ fullname, email, provider, providerId, allowEmailFallback = false }) {
   const normalizedProvider = String(provider || "social").trim().toLowerCase();
   const normalizedProviderId = String(providerId || "").trim();
-  let normalizedEmail = String(email || "").trim().toLowerCase();
+  let normalizedEmail = normalizeEmail(email);
 
   if (!normalizedEmail && allowEmailFallback && normalizedProviderId) {
     normalizedEmail = `${normalizedProvider}_${normalizedProviderId}@foodhub.local`;
@@ -78,6 +180,18 @@ async function getOrCreateSocialUser({ fullname, email, provider, providerId, al
   const linkedUser = await findSocialUser(normalizedProvider, normalizedProviderId);
 
   if (linkedUser) {
+    if (normalizedProvider === "google" && normalizedEmail) {
+      await linkSocialAccount(linkedUser.id, {
+        fullname,
+        email: normalizedEmail,
+        provider: normalizedProvider,
+        providerId: normalizedProviderId
+      });
+
+      const [users] = await db.query("SELECT * FROM users WHERE id = ?", [linkedUser.id]);
+      return users[0];
+    }
+
     return linkedUser;
   }
 
@@ -90,13 +204,22 @@ async function getOrCreateSocialUser({ fullname, email, provider, providerId, al
       provider: normalizedProvider,
       providerId: normalizedProviderId
     });
-    return users[0];
+
+    const [updatedUsers] = await db.query("SELECT * FROM users WHERE id = ?", [users[0].id]);
+    return updatedUsers[0];
   }
 
   const fallbackPassword = await bcrypt.hash(`${normalizedProvider}:${normalizedProviderId}:${Date.now()}`, 10);
+  const isVerifiedSocialEmail = normalizedProvider === "google";
   const [result] = await db.query(
-    "INSERT INTO users (fullname, email, password) VALUES (?, ?, ?)",
-    [String(fullname || normalizedEmail).trim(), normalizedEmail, fallbackPassword]
+    `INSERT INTO users (fullname, email, password, email_verified, email_verified_at)
+     VALUES (?, ?, ?, ?, ${isVerifiedSocialEmail ? "NOW()" : "NULL"})`,
+    [
+      String(fullname || normalizedEmail).trim(),
+      normalizedEmail,
+      fallbackPassword,
+      isVerifiedSocialEmail ? 1 : 0
+    ]
   );
 
   const [newUsers] = await db.query("SELECT * FROM users WHERE id = ?", [result.insertId]);
@@ -184,8 +307,9 @@ async function getSocialProfile(provider, accessToken) {
 router.post("/register", async (req, res) => {
   try {
     const { fullname, email, password } = req.body;
+    const normalizedEmail = normalizeEmail(email);
 
-    if (!fullname || !email || !password) {
+    if (!fullname || !normalizedEmail || !password) {
       return res.status(400).json({ message: "Vui long nhap day du thong tin" });
     }
 
@@ -193,7 +317,7 @@ router.post("/register", async (req, res) => {
       return res.status(400).json({ message: "Mat khau toi thieu 6 ky tu" });
     }
 
-    const [oldUsers] = await db.query("SELECT id FROM users WHERE email = ?", [email]);
+    const [oldUsers] = await db.query("SELECT id FROM users WHERE email = ?", [normalizedEmail]);
 
     if (oldUsers.length > 0) {
       return res.status(400).json({ message: "Email da ton tai" });
@@ -201,12 +325,105 @@ router.post("/register", async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    await db.query(
-      "INSERT INTO users (fullname, email, password) VALUES (?, ?, ?)",
-      [fullname.trim(), email.trim().toLowerCase(), hashedPassword]
+    const [result] = await db.query(
+      "INSERT INTO users (fullname, email, password, email_verified) VALUES (?, ?, ?, 0)",
+      [fullname.trim(), normalizedEmail, hashedPassword]
     );
 
-    res.status(201).json({ message: "Dang ky thanh cong" });
+    const verificationUrl = await createEmailVerification(result.insertId);
+    let emailSent = false;
+
+    try {
+      emailSent = await sendVerificationEmail(normalizedEmail, fullname, verificationUrl);
+    } catch (mailError) {
+      console.error(mailError);
+    }
+
+    res.status(201).json({
+      message: emailSent
+        ? "Dang ky thanh cong. Vui long kiem tra email de xac thuc tai khoan."
+        : "Dang ky thanh cong. Hay bam link xac thuc de kich hoat tai khoan.",
+      verificationUrl: shouldExposeVerificationUrl(emailSent) ? verificationUrl : undefined
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Loi server" });
+  }
+});
+
+router.get("/verify-email", async (req, res) => {
+  try {
+    const token = String(req.query.token || "").trim();
+
+    if (!token) {
+      return res.status(400).json({ message: "Thieu ma xac thuc" });
+    }
+
+    const [tokens] = await db.query(
+      `SELECT id, user_id
+       FROM email_verification_tokens
+       WHERE token_hash = ?
+         AND used_at IS NULL
+         AND expires_at > NOW()
+       LIMIT 1`,
+      [hashToken(token)]
+    );
+
+    if (tokens.length === 0) {
+      return res.status(400).json({ message: "Link xac thuc khong hop le hoac da het han" });
+    }
+
+    await db.query(
+      "UPDATE users SET email_verified = 1, email_verified_at = NOW() WHERE id = ?",
+      [tokens[0].user_id]
+    );
+    await db.query("UPDATE email_verification_tokens SET used_at = NOW() WHERE id = ?", [
+      tokens[0].id
+    ]);
+
+    res.json({ message: "Xac thuc email thanh cong. Ban co the dang nhap." });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Loi server" });
+  }
+});
+
+router.post("/resend-verification", async (req, res) => {
+  try {
+    const normalizedEmail = normalizeEmail(req.body.email);
+
+    if (!normalizedEmail) {
+      return res.status(400).json({ message: "Vui long nhap email" });
+    }
+
+    const [users] = await db.query(
+      "SELECT id, fullname, email_verified FROM users WHERE email = ?",
+      [normalizedEmail]
+    );
+
+    if (users.length === 0) {
+      return res.status(404).json({ message: "Khong tim thay tai khoan" });
+    }
+
+    if (users[0].email_verified) {
+      return res.json({ message: "Email nay da duoc xac thuc" });
+    }
+
+    const verificationUrl = await createEmailVerification(users[0].id);
+    let emailSent = false;
+
+    try {
+      emailSent = await sendVerificationEmail(normalizedEmail, users[0].fullname, verificationUrl);
+    } catch (mailError) {
+      console.error(mailError);
+    }
+
+    res.json({
+      message: emailSent
+        ? "Da gui lai email xac thuc."
+        : "Da tao lai link xac thuc.",
+      verificationUrl: shouldExposeVerificationUrl(emailSent) ? verificationUrl : undefined
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Loi server" });
@@ -234,6 +451,24 @@ router.post("/login", async (req, res) => {
 
     if (!isMatch) {
       return res.status(400).json({ message: "Email hoac mat khau khong dung" });
+    }
+
+    if (!user.email_verified) {
+      const verificationUrl = await createEmailVerification(user.id);
+      let emailSent = false;
+
+      try {
+        emailSent = await sendVerificationEmail(user.email, user.fullname, verificationUrl);
+      } catch (mailError) {
+        console.error(mailError);
+      }
+
+      return res.status(403).json({
+        message: emailSent
+          ? "Email chua xac thuc. Minh da gui lai email xac thuc cho ban."
+          : "Email chua xac thuc. Hay bam link xac thuc de kich hoat tai khoan.",
+        verificationUrl: shouldExposeVerificationUrl(emailSent) ? verificationUrl : undefined
+      });
     }
 
     sendAuthResponse(res, user);
@@ -320,7 +555,7 @@ router.post("/social/link/:provider", requireAuth, async (req, res) => {
 router.get("/me", requireAuth, async (req, res) => {
   try {
     const [users] = await db.query(
-      "SELECT id, fullname, email, role, created_at FROM users WHERE id = ?",
+      "SELECT id, fullname, email, role, email_verified AS emailVerified, created_at FROM users WHERE id = ?",
       [req.user.id]
     );
 
@@ -338,7 +573,7 @@ router.get("/me", requireAuth, async (req, res) => {
 router.put("/me", requireAuth, async (req, res) => {
   try {
     const { fullname, email } = req.body;
-    const normalizedEmail = String(email || "").trim().toLowerCase();
+    const normalizedEmail = normalizeEmail(email);
 
     if (!fullname || !normalizedEmail) {
       return res.status(400).json({ message: "Vui long nhap ho ten va email" });
@@ -353,17 +588,44 @@ router.put("/me", requireAuth, async (req, res) => {
       return res.status(400).json({ message: "Email da duoc tai khoan khac su dung" });
     }
 
+    const [currentUsers] = await db.query("SELECT email FROM users WHERE id = ?", [req.user.id]);
+    const emailChanged = normalizeEmail(currentUsers[0]?.email) !== normalizedEmail;
+
     await db.query(
-      "UPDATE users SET fullname = ?, email = ? WHERE id = ?",
-      [fullname.trim(), normalizedEmail, req.user.id]
+      `UPDATE users
+       SET fullname = ?,
+           email = ?,
+           email_verified = CASE WHEN ? THEN 0 ELSE email_verified END,
+           email_verified_at = CASE WHEN ? THEN NULL ELSE email_verified_at END
+       WHERE id = ?`,
+      [fullname.trim(), normalizedEmail, emailChanged, emailChanged, req.user.id]
     );
 
     const [users] = await db.query(
-      "SELECT id, fullname, email, role, created_at FROM users WHERE id = ?",
+      "SELECT id, fullname, email, role, email_verified AS emailVerified, created_at FROM users WHERE id = ?",
       [req.user.id]
     );
 
-    res.json({ message: "Cap nhat tai khoan thanh cong", user: users[0] });
+    let verificationUrl;
+    let emailSent = false;
+
+    if (emailChanged) {
+      verificationUrl = await createEmailVerification(req.user.id);
+
+      try {
+        emailSent = await sendVerificationEmail(normalizedEmail, fullname, verificationUrl);
+      } catch (mailError) {
+        console.error(mailError);
+      }
+    }
+
+    res.json({
+      message: emailChanged
+        ? "Da cap nhat email. Vui long xac thuc email moi."
+        : "Cap nhat tai khoan thanh cong",
+      user: users[0],
+      verificationUrl: emailChanged && shouldExposeVerificationUrl(emailSent) ? verificationUrl : undefined
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Loi server" });
