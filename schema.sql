@@ -29,6 +29,21 @@ CREATE TABLE IF NOT EXISTS users (
   UNIQUE KEY email (email)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS social_accounts (
+  id INT NOT NULL AUTO_INCREMENT,
+  user_id INT NOT NULL,
+  provider VARCHAR(30) NOT NULL,
+  provider_user_id VARCHAR(150) NOT NULL,
+  provider_email VARCHAR(150) DEFAULT NULL,
+  provider_name VARCHAR(150) DEFAULT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY provider_identity (provider, provider_user_id),
+  UNIQUE KEY user_provider (user_id, provider),
+  KEY user_id (user_id),
+  CONSTRAINT social_accounts_user_fk FOREIGN KEY (user_id) REFERENCES users (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS orders (
   id INT NOT NULL AUTO_INCREMENT,
   user_id INT DEFAULT NULL,
