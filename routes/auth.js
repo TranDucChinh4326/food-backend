@@ -448,6 +448,11 @@ router.post("/login", async (req, res) => {
     }
 
     const user = users[0];
+
+    if (!user.is_active) {
+      return res.status(403).json({ message: "Tai khoan da bi khoa" });
+    }
+
     const isMatch = await bcrypt.compare(password, user.password);
 
     if (!isMatch) {
