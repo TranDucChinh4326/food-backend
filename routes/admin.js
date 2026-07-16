@@ -302,6 +302,57 @@ router.get("/users", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISSIONS
   }
 });
 
+router.post("/users", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISSIONS.STAFF_MANAGE]), async (req, res) => {
+  try {
+    const { fullname, email, password, role = "USER", permissions = [] } = req.body;
+    const normalizedEmail = normalizeEmail(email);
+    const normalizedRole = String(role || "USER").trim().toUpperCase();
+
+    if (!fullname || !normalizedEmail || !password) {
+      return res.status(400).json({ message: "Vui long nhap ho ten, email va mat khau" });
+    }
+
+    if (!MANAGED_ROLES.includes(normalizedRole)) {
+      return res.status(400).json({ message: "Vai tro khong hop le" });
+    }
+
+    const blocked = ensureManageAccess(req, res, normalizedRole);
+    if (blocked) return;
+
+    if (password.length < 6) {
+      return res.status(400).json({ message: "Mat khau toi thieu 6 ky tu" });
+    }
+
+    const [existingUsers] = await db.query("SELECT id FROM users WHERE email = ?", [normalizedEmail]);
+    if (existingUsers.length > 0) {
+      return res.status(409).json({ message: "Email da ton tai" });
+    }
+
+    const hashedPassword = await bcrypt.hash(String(password), 10);
+    const savedPermissions = normalizedRole === "USER" || !canManageRoles(req.user)
+      ? "[]"
+      : serializePermissions(permissions);
+
+    const [result] = await db.query(
+      `INSERT INTO users
+       (fullname, email, password, password_set, role, permissions, is_active, email_verified, email_verified_at)
+       VALUES (?, ?, ?, 1, ?, ?, 1, 1, NOW())`,
+      [
+        String(fullname).trim(),
+        normalizedEmail,
+        hashedPassword,
+        normalizedRole,
+        savedPermissions
+      ]
+    );
+
+    res.status(201).json({ message: "Da tao tai khoan", id: result.insertId });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Khong the tao tai khoan" });
+  }
+});
+
 router.post("/staff", requirePermission(PERMISSIONS.STAFF_MANAGE), async (req, res) => {
   try {
     const { fullname, email, password, role = "STAFF_SALES", permissions = [] } = req.body;
