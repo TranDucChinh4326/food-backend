@@ -115,6 +115,25 @@ CREATE TABLE IF NOT EXISTS announcements (
   PRIMARY KEY (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS discounts (
+  id INT NOT NULL AUTO_INCREMENT,
+  code VARCHAR(40) NOT NULL,
+  name VARCHAR(150) NOT NULL,
+  discount_type VARCHAR(20) NOT NULL DEFAULT 'percent',
+  discount_value INT NOT NULL,
+  min_order INT NOT NULL DEFAULT 0,
+  max_discount INT DEFAULT NULL,
+  usage_limit INT DEFAULT NULL,
+  used_count INT NOT NULL DEFAULT 0,
+  starts_at TIMESTAMP NULL DEFAULT NULL,
+  expires_at TIMESTAMP NULL DEFAULT NULL,
+  is_active TINYINT DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY discount_code (code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 INSERT IGNORE INTO categories (id, name, slug, type, parent_id, sort_order, is_active) VALUES
   (100, 'Do an', 'do-an', 'food', NULL, 1, 1),
   (101, 'Nuoc uong', 'nuoc-uong', 'drink', NULL, 2, 1);
@@ -144,3 +163,7 @@ INSERT IGNORE INTO announcements (id, title, content, is_active) VALUES
   (1, 'Mien phi giao hang cho don tu 150.000d', 'FoodHub mien phi giao hang trong khu vuc noi thanh cho cac don hang tu 150.000d.', 1),
   (2, 'Cap nhat thuc don moi cuoi tuan', 'Nhieu mon an moi se duoc bo sung vao thuc don vao thu bay hang tuan.', 1),
   (3, 'Ho tro dat hang nhanh qua hotline', 'Neu can ho tro don hang, vui long lien he hotline tren trang lien he cua FoodHub.', 1);
+
+INSERT IGNORE INTO discounts (id, code, name, discount_type, discount_value, min_order, max_discount, usage_limit, is_active) VALUES
+  (1, 'FOODHUB10', 'Giam 10% cho don tu 100.000d', 'percent', 10, 100000, 30000, 100, 1),
+  (2, 'FREESHIP20', 'Giam 20.000d cho don tu 150.000d', 'fixed', 20000, 150000, NULL, NULL, 1);

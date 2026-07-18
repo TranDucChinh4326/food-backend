@@ -66,6 +66,69 @@ function resolveAnnouncementExpiry(publishedAt, validityDays, expiresAt) {
   return toMysqlDateTime(addDays(startDate, days));
 }
 
+function normalizeDiscountCode(code) {
+  return String(code || "").trim().toUpperCase().replace(/\s+/g, "");
+}
+
+function parsePositiveNumber(value, fallback = 0) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) return fallback;
+  return Math.round(number);
+}
+
+function parseNullablePositiveNumber(value) {
+  if (value === null || value === undefined || value === "") return null;
+
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) return null;
+  return Math.round(number);
+}
+
+function validateDiscountPayload(body) {
+  const code = normalizeDiscountCode(body.code);
+  const name = String(body.name || "").trim();
+  const discountType = String(body.discountType || body.discount_type || "percent").trim().toLowerCase();
+  const discountValue = parsePositiveNumber(body.discountValue ?? body.discount_value, 0);
+  const minOrder = parsePositiveNumber(body.minOrder ?? body.min_order, 0);
+  const maxDiscount = parseNullablePositiveNumber(body.maxDiscount ?? body.max_discount);
+  const usageLimit = parseNullablePositiveNumber(body.usageLimit ?? body.usage_limit);
+
+  if (!code) {
+    return { error: "Vui long nhap ma giam gia" };
+  }
+
+  if (!/^[A-Z0-9_-]{3,40}$/.test(code)) {
+    return { error: "Ma giam gia chi gom chu, so, dau gach ngang hoac gach duoi" };
+  }
+
+  if (!name) {
+    return { error: "Vui long nhap ten chuong trinh" };
+  }
+
+  if (!["percent", "fixed"].includes(discountType)) {
+    return { error: "Kieu giam gia khong hop le" };
+  }
+
+  if (discountValue <= 0 || (discountType === "percent" && discountValue > 100)) {
+    return { error: "Gia tri giam gia khong hop le" };
+  }
+
+  return {
+    value: {
+      code,
+      name,
+      discountType,
+      discountValue,
+      minOrder,
+      maxDiscount,
+      usageLimit,
+      startsAt: toMysqlDateTime(body.startsAt ?? body.starts_at),
+      expiresAt: toMysqlDateTime(body.expiresAt ?? body.expires_at),
+      isActive: body.isActive === undefined ? true : Boolean(body.isActive)
+    }
+  };
+}
+
 function publicManagedUser(user) {
   return {
     id: user.id,
@@ -129,7 +192,9 @@ router.get("/permissions", requirePermission(PERMISSIONS.ROLES_MANAGE), (req, re
       { value: PERMISSIONS.STAFF_MANAGE, label: "Quan ly nhan vien" },
       { value: PERMISSIONS.ROLES_MANAGE, label: "Cap phat quyen" },
       { value: PERMISSIONS.PASSWORD_RESET, label: "Dat lai mat khau theo yeu cau" },
-      { value: PERMISSIONS.ANNOUNCEMENTS_MANAGE, label: "Quan ly thong bao" }
+      { value: PERMISSIONS.ANNOUNCEMENTS_MANAGE, label: "Quan ly thong bao" },
+      { value: PERMISSIONS.DISCOUNTS_MANAGE, label: "Quan ly ma giam gia" },
+      { value: PERMISSIONS.STATS_VIEW, label: "Xem thong ke" }
     ]
   });
 });
@@ -305,6 +370,283 @@ router.delete("/announcements/:id", requirePermission(PERMISSIONS.ANNOUNCEMENTS_
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Khong the xoa thong bao" });
+  }
+});
+
+router.get("/discounts", requirePermission(PERMISSIONS.DISCOUNTS_MANAGE), async (req, res) => {
+  try {
+    const search = String(req.query.q || "").trim();
+    const status = String(req.query.status || "all").toLowerCase();
+    const where = [];
+    const params = [];
+
+    if (search) {
+      where.push("(code LIKE ? OR name LIKE ?)");
+      params.push(`%${search}%`, `%${search}%`);
+    }
+
+    if (status === "active") {
+      where.push("is_active = 1 AND (starts_at IS NULL OR starts_at <= NOW()) AND (expires_at IS NULL OR expires_at > NOW()) AND (usage_limit IS NULL OR used_count < usage_limit)");
+    } else if (status === "hidden") {
+      where.push("is_active = 0");
+    } else if (status === "expired") {
+      where.push("is_active = 1 AND expires_at IS NOT NULL AND expires_at <= NOW()");
+    } else if (status === "scheduled") {
+      where.push("is_active = 1 AND starts_at IS NOT NULL AND starts_at > NOW()");
+    } else if (status === "soldout") {
+      where.push("usage_limit IS NOT NULL AND used_count >= usage_limit");
+    }
+
+    const [discounts] = await db.query(
+      `SELECT id, code, name, discount_type, discount_value, min_order, max_discount,
+        usage_limit, used_count, starts_at, expires_at, is_active, created_at, updated_at,
+        CASE
+          WHEN is_active = 0 THEN 'hidden'
+          WHEN usage_limit IS NOT NULL AND used_count >= usage_limit THEN 'soldout'
+          WHEN starts_at IS NOT NULL AND starts_at > NOW() THEN 'scheduled'
+          WHEN expires_at IS NOT NULL AND expires_at <= NOW() THEN 'expired'
+          ELSE 'active'
+        END AS status
+       FROM discounts
+       ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+       ORDER BY created_at DESC, id DESC
+       LIMIT 300`,
+      params
+    );
+
+    res.json(discounts);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Loi server" });
+  }
+});
+
+router.get("/discounts/:id", requirePermission(PERMISSIONS.DISCOUNTS_MANAGE), async (req, res) => {
+  try {
+    const discountId = Number(req.params.id);
+
+    if (!Number.isInteger(discountId) || discountId <= 0) {
+      return res.status(400).json({ message: "Ma giam gia khong hop le" });
+    }
+
+    const [discounts] = await db.query(
+      `SELECT id, code, name, discount_type, discount_value, min_order, max_discount,
+        usage_limit, used_count, starts_at, expires_at, is_active, created_at, updated_at
+       FROM discounts
+       WHERE id = ?`,
+      [discountId]
+    );
+
+    if (discounts.length === 0) {
+      return res.status(404).json({ message: "Khong tim thay ma giam gia" });
+    }
+
+    res.json(discounts[0]);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Loi server" });
+  }
+});
+
+router.post("/discounts", requirePermission(PERMISSIONS.DISCOUNTS_MANAGE), async (req, res) => {
+  try {
+    const parsed = validateDiscountPayload(req.body);
+    if (parsed.error) {
+      return res.status(400).json({ message: parsed.error });
+    }
+
+    const discount = parsed.value;
+    const [result] = await db.query(
+      `INSERT INTO discounts
+       (code, name, discount_type, discount_value, min_order, max_discount, usage_limit, starts_at, expires_at, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        discount.code,
+        discount.name,
+        discount.discountType,
+        discount.discountValue,
+        discount.minOrder,
+        discount.maxDiscount,
+        discount.usageLimit,
+        discount.startsAt,
+        discount.expiresAt,
+        discount.isActive ? 1 : 0
+      ]
+    );
+
+    res.status(201).json({ message: "Da tao ma giam gia", id: result.insertId });
+  } catch (error) {
+    if (error.code === "ER_DUP_ENTRY") {
+      return res.status(409).json({ message: "Ma giam gia da ton tai" });
+    }
+
+    console.error(error);
+    res.status(500).json({ message: "Khong the tao ma giam gia" });
+  }
+});
+
+router.put("/discounts/:id", requirePermission(PERMISSIONS.DISCOUNTS_MANAGE), async (req, res) => {
+  try {
+    const discountId = Number(req.params.id);
+
+    if (!Number.isInteger(discountId) || discountId <= 0) {
+      return res.status(400).json({ message: "Ma giam gia khong hop le" });
+    }
+
+    const parsed = validateDiscountPayload(req.body);
+    if (parsed.error) {
+      return res.status(400).json({ message: parsed.error });
+    }
+
+    const discount = parsed.value;
+    const [result] = await db.query(
+      `UPDATE discounts
+       SET code = ?, name = ?, discount_type = ?, discount_value = ?, min_order = ?,
+        max_discount = ?, usage_limit = ?, starts_at = ?, expires_at = ?, is_active = ?
+       WHERE id = ?`,
+      [
+        discount.code,
+        discount.name,
+        discount.discountType,
+        discount.discountValue,
+        discount.minOrder,
+        discount.maxDiscount,
+        discount.usageLimit,
+        discount.startsAt,
+        discount.expiresAt,
+        discount.isActive ? 1 : 0,
+        discountId
+      ]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "Khong tim thay ma giam gia" });
+    }
+
+    res.json({ message: "Da cap nhat ma giam gia" });
+  } catch (error) {
+    if (error.code === "ER_DUP_ENTRY") {
+      return res.status(409).json({ message: "Ma giam gia da ton tai" });
+    }
+
+    console.error(error);
+    res.status(500).json({ message: "Khong the cap nhat ma giam gia" });
+  }
+});
+
+router.delete("/discounts/:id", requirePermission(PERMISSIONS.DISCOUNTS_MANAGE), async (req, res) => {
+  try {
+    const discountId = Number(req.params.id);
+
+    if (!Number.isInteger(discountId) || discountId <= 0) {
+      return res.status(400).json({ message: "Ma giam gia khong hop le" });
+    }
+
+    const [result] = await db.query("DELETE FROM discounts WHERE id = ?", [discountId]);
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "Khong tim thay ma giam gia" });
+    }
+
+    res.json({ message: "Da xoa ma giam gia" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Khong the xoa ma giam gia" });
+  }
+});
+
+router.get("/stats", requireAnyPermission([PERMISSIONS.STATS_VIEW, PERMISSIONS.ORDERS_MANAGE]), async (req, res) => {
+  try {
+    const from = String(req.query.from || "").trim();
+    const to = String(req.query.to || "").trim();
+    const where = [];
+    const params = [];
+
+    if (from) {
+      where.push("DATE(created_at) >= ?");
+      params.push(from);
+    }
+
+    if (to) {
+      where.push("DATE(created_at) <= ?");
+      params.push(to);
+    }
+
+    const orderWhere = where.length ? `WHERE ${where.join(" AND ")}` : "";
+    const detailWhere = where.length
+      ? `WHERE ${where.map(condition => condition.replace("created_at", "orders.created_at")).join(" AND ")}`
+      : "";
+
+    const [orderRows] = await db.query(
+      `SELECT
+        COUNT(*) AS total_orders,
+        COALESCE(SUM(CASE WHEN status = 'done' THEN total_price ELSE 0 END), 0) AS revenue,
+        COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0) AS pending_orders,
+        COALESCE(SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END), 0) AS done_orders,
+        COALESCE(SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END), 0) AS cancelled_orders
+       FROM orders
+       ${orderWhere}`,
+      params
+    );
+
+    const [userRows] = await db.query(
+      `SELECT
+        COUNT(*) AS total_users,
+        COALESCE(SUM(CASE WHEN role = 'USER' THEN 1 ELSE 0 END), 0) AS customers,
+        COALESCE(SUM(CASE WHEN role <> 'USER' THEN 1 ELSE 0 END), 0) AS staff
+       FROM users`
+    );
+
+    const [foodRows] = await db.query(
+      `SELECT
+        COUNT(*) AS total_foods,
+        COALESCE(SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END), 0) AS active_foods
+       FROM foods`
+    );
+
+    const [discountRows] = await db.query(
+      `SELECT
+        COUNT(*) AS total_discounts,
+        COALESCE(SUM(CASE WHEN is_active = 1 AND (starts_at IS NULL OR starts_at <= NOW()) AND (expires_at IS NULL OR expires_at > NOW()) AND (usage_limit IS NULL OR used_count < usage_limit) THEN 1 ELSE 0 END), 0) AS active_discounts
+       FROM discounts`
+    );
+
+    const [topFoods] = await db.query(
+      `SELECT order_details.food_name, SUM(order_details.quantity) AS quantity,
+        SUM(order_details.subtotal) AS revenue
+       FROM order_details
+       JOIN orders ON orders.id = order_details.order_id
+       ${detailWhere}
+       GROUP BY order_details.food_name
+       ORDER BY quantity DESC, revenue DESC
+       LIMIT 5`,
+      params
+    );
+
+    const [dailyRevenue] = await db.query(
+      `SELECT DATE(created_at) AS order_date, COUNT(*) AS orders_count,
+        COALESCE(SUM(CASE WHEN status = 'done' THEN total_price ELSE 0 END), 0) AS revenue
+       FROM orders
+       ${orderWhere}
+       GROUP BY DATE(created_at)
+       ORDER BY order_date DESC
+       LIMIT 14`,
+      params
+    );
+
+    res.json({
+      summary: {
+        ...orderRows[0],
+        ...userRows[0],
+        ...foodRows[0],
+        ...discountRows[0]
+      },
+      topFoods,
+      dailyRevenue
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Khong the tai thong ke" });
   }
 });
 
