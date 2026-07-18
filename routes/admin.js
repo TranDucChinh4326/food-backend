@@ -80,6 +80,15 @@ function publicManagedUser(user) {
   };
 }
 
+function inferCategoryType(category) {
+  const text = `${category.name || ""} ${category.category_name || ""}`.toLowerCase();
+  if (Number(category.id || category.category_id) === 4 || text.includes("uong") || text.includes("tra") || text.includes("ca phe")) {
+    return "drink";
+  }
+
+  return "food";
+}
+
 function canManageStaff(user) {
   return hasPermission(user, PERMISSIONS.STAFF_MANAGE);
 }
@@ -370,14 +379,86 @@ router.patch("/orders/:id/status", requirePermission(PERMISSIONS.ORDERS_MANAGE),
   }
 });
 
+router.get("/categories", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req, res) => {
+  try {
+    let categories;
+
+    try {
+      [categories] = await db.query(
+        `SELECT categories.id,
+                categories.name,
+                categories.slug,
+                categories.type,
+                categories.parent_id AS parentId,
+                categories.sort_order AS sortOrder,
+                categories.is_active AS isActive,
+                parent_categories.name AS parentName,
+                parent_categories.slug AS parentSlug
+         FROM categories
+         LEFT JOIN categories AS parent_categories ON parent_categories.id = categories.parent_id
+         WHERE categories.is_active = 1
+         ORDER BY categories.type ASC, categories.parent_id IS NULL DESC, categories.parent_id ASC, categories.sort_order ASC, categories.name ASC`
+      );
+    } catch (error) {
+      const [oldCategories] = await db.query(
+        `SELECT id, name
+         FROM categories
+         ORDER BY id ASC`
+      );
+
+      categories = oldCategories.map(category => ({
+        ...category,
+        slug: null,
+        type: inferCategoryType(category),
+        parentId: null,
+        sortOrder: category.id,
+        isActive: true,
+        parentName: null,
+        parentSlug: null
+      }));
+    }
+
+    res.json(categories);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Loi server" });
+  }
+});
+
 router.get("/foods", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req, res) => {
   try {
-    const [foods] = await db.query(
-      `SELECT foods.*, categories.name AS category_name
-       FROM foods
-       LEFT JOIN categories ON categories.id = foods.category_id
-       ORDER BY foods.created_at DESC, foods.id DESC`
-    );
+    let foods;
+
+    try {
+      [foods] = await db.query(
+        `SELECT foods.*,
+                categories.name AS category_name,
+                categories.slug AS category_slug,
+                categories.type AS category_type,
+                categories.parent_id AS parent_category_id,
+                parent_categories.name AS parent_category_name,
+                parent_categories.slug AS parent_category_slug
+         FROM foods
+         LEFT JOIN categories ON categories.id = foods.category_id
+         LEFT JOIN categories AS parent_categories ON parent_categories.id = categories.parent_id
+         ORDER BY foods.created_at DESC, foods.id DESC`
+      );
+    } catch (error) {
+      const [oldFoods] = await db.query(
+        `SELECT foods.*, categories.name AS category_name
+         FROM foods
+         LEFT JOIN categories ON categories.id = foods.category_id
+         ORDER BY foods.created_at DESC, foods.id DESC`
+      );
+
+      foods = oldFoods.map(food => ({
+        ...food,
+        category_type: inferCategoryType(food),
+        parent_category_id: null,
+        parent_category_name: null,
+        parent_category_slug: null
+      }));
+    }
 
     res.json(foods);
   } catch (error) {
