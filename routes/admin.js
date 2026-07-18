@@ -96,7 +96,6 @@ router.get("/announcements", requirePermission(PERMISSIONS.ANNOUNCEMENTS_MANAGE)
   try {
     const search = String(req.query.q || "").trim();
     const status = String(req.query.status || "all").toLowerCase();
-    const important = String(req.query.important || "all").toLowerCase();
     const where = [];
     const params = [];
 
@@ -111,14 +110,8 @@ router.get("/announcements", requirePermission(PERMISSIONS.ANNOUNCEMENTS_MANAGE)
       where.push("is_active = 0");
     }
 
-    if (important === "important") {
-      where.push("is_important = 1");
-    } else if (important === "normal") {
-      where.push("is_important = 0");
-    }
-
     const [announcements] = await db.query(
-      `SELECT id, title, content, link_url, is_important, is_active, published_at, created_at, updated_at
+      `SELECT id, title, content, is_active, published_at, created_at, updated_at
        FROM announcements
        ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
        ORDER BY id ASC
@@ -142,7 +135,7 @@ router.get("/announcements/:id", requirePermission(PERMISSIONS.ANNOUNCEMENTS_MAN
     }
 
     const [announcements] = await db.query(
-      `SELECT id, title, content, link_url, is_important, is_active, published_at, created_at, updated_at
+      `SELECT id, title, content, is_active, published_at, created_at, updated_at
        FROM announcements
        WHERE id = ?`,
       [announcementId]
@@ -164,8 +157,6 @@ router.post("/announcements", requirePermission(PERMISSIONS.ANNOUNCEMENTS_MANAGE
     const {
       title,
       content = "",
-      linkUrl = "",
-      isImportant = false,
       isActive = true,
       publishedAt = null
     } = req.body;
@@ -175,13 +166,11 @@ router.post("/announcements", requirePermission(PERMISSIONS.ANNOUNCEMENTS_MANAGE
     }
 
     const [result] = await db.query(
-      `INSERT INTO announcements (title, content, link_url, is_important, is_active, published_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO announcements (title, content, is_active, published_at)
+       VALUES (?, ?, ?, ?)`,
       [
         String(title).trim(),
         String(content || "").trim(),
-        String(linkUrl || "").trim() || null,
-        isImportant ? 1 : 0,
         isActive ? 1 : 0,
         publishedAt || null
       ]
@@ -200,8 +189,6 @@ router.put("/announcements/:id", requirePermission(PERMISSIONS.ANNOUNCEMENTS_MAN
     const {
       title,
       content = "",
-      linkUrl = "",
-      isImportant = false,
       isActive = true,
       publishedAt = null
     } = req.body;
@@ -216,13 +203,11 @@ router.put("/announcements/:id", requirePermission(PERMISSIONS.ANNOUNCEMENTS_MAN
 
     const [result] = await db.query(
       `UPDATE announcements
-       SET title = ?, content = ?, link_url = ?, is_important = ?, is_active = ?, published_at = ?
+       SET title = ?, content = ?, is_active = ?, published_at = ?
        WHERE id = ?`,
       [
         String(title).trim(),
         String(content || "").trim(),
-        String(linkUrl || "").trim() || null,
-        isImportant ? 1 : 0,
         isActive ? 1 : 0,
         publishedAt || null,
         announcementId
@@ -248,19 +233,16 @@ router.delete("/announcements/:id", requirePermission(PERMISSIONS.ANNOUNCEMENTS_
       return res.status(400).json({ message: "Ma thong bao khong hop le" });
     }
 
-    const [result] = await db.query(
-      "UPDATE announcements SET is_active = 0 WHERE id = ?",
-      [announcementId]
-    );
+    const [result] = await db.query("DELETE FROM announcements WHERE id = ?", [announcementId]);
 
     if (result.affectedRows === 0) {
       return res.status(404).json({ message: "Khong tim thay thong bao" });
     }
 
-    res.json({ message: "Da an thong bao" });
+    res.json({ message: "Da xoa thong bao" });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Khong the an thong bao" });
+    res.status(500).json({ message: "Khong the xoa thong bao" });
   }
 });
 

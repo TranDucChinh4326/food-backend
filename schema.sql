@@ -119,7 +119,7 @@ INSERT IGNORE INTO foods (id, name, category_id, price, description, image, is_a
   (5, 'Tra dao cam sa', 4, 29000, 'Tra dao thanh mat, huong cam sa thom nhe.', 'https://images.unsplash.com/photo-1556679343-c7306c1976bc', 1),
   (6, 'Pho bo tai', 3, 55000, 'Pho bo nong hoi, nuoc dung ngot thanh, thit bo mem.', 'https://images.unsplash.com/photo-1582878826629-29b7ad1cdc43', 1);
 
-INSERT IGNORE INTO announcements (id, title, content, link_url, is_important, is_active) VALUES
-  (1, 'Mien phi giao hang cho don tu 150.000d', 'FoodHub mien phi giao hang trong khu vuc noi thanh cho cac don hang tu 150.000d.', 'menu.html', 1, 1),
-  (2, 'Cap nhat thuc don moi cuoi tuan', 'Nhieu mon an moi se duoc bo sung vao thuc don vao thu bay hang tuan.', 'menu.html', 0, 1),
-  (3, 'Ho tro dat hang nhanh qua hotline', 'Neu can ho tro don hang, vui long lien he hotline tren trang lien he cua FoodHub.', 'contact.html', 0, 1);
+INSERT IGNORE INTO announcements (id, title, content, is_active) VALUES
+  (1, 'Mien phi giao hang cho don tu 150.000d', 'FoodHub mien phi giao hang trong khu vuc noi thanh cho cac don hang tu 150.000d.', 1),
+  (2, 'Cap nhat thuc don moi cuoi tuan', 'Nhieu mon an moi se duoc bo sung vao thuc don vao thu bay hang tuan.', 1),
+  (3, 'Ho tro dat hang nhanh qua hotline', 'Neu can ho tro don hang, vui long lien he hotline tren trang lien he cua FoodHub.', 1);
