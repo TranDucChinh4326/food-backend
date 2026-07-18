@@ -2,6 +2,7 @@ require("dotenv").config();
 
 const express = require("express");
 const cors = require("cors");
+const db = require("./db");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -59,6 +60,19 @@ app.get("/api/health", (req, res) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`);
+async function ensureSchema() {
+  try {
+    await db.query("ALTER TABLE announcements ADD COLUMN expires_at TIMESTAMP NULL DEFAULT NULL");
+    console.log("Added announcements.expires_at column");
+  } catch (error) {
+    if (error.code !== "ER_DUP_FIELDNAME") {
+      console.error("Schema check failed:", error.message);
+    }
+  }
+}
+
+ensureSchema().finally(() => {
+  app.listen(PORT, () => {
+    console.log(`Server running at http://localhost:${PORT}`);
+  });
 });

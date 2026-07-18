@@ -33,6 +33,39 @@ function serializePermissions(permissions = []) {
   return JSON.stringify([...new Set(permissions.filter(permission => ALL_PERMISSIONS.includes(permission)))]);
 }
 
+function addDays(date, days) {
+  const result = new Date(date.getTime());
+  result.setDate(result.getDate() + days);
+  return result;
+}
+
+function toMysqlDateTime(value) {
+  if (!value) return null;
+
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+
+  return date.toISOString().slice(0, 19).replace("T", " ");
+}
+
+function resolveAnnouncementExpiry(publishedAt, validityDays, expiresAt) {
+  if (expiresAt) {
+    return toMysqlDateTime(expiresAt);
+  }
+
+  const days = Number(validityDays);
+  if (!Number.isFinite(days) || days <= 0) {
+    return null;
+  }
+
+  const startDate = publishedAt ? new Date(publishedAt) : new Date();
+  if (Number.isNaN(startDate.getTime())) {
+    return null;
+  }
+
+  return toMysqlDateTime(addDays(startDate, days));
+}
+
 function publicManagedUser(user) {
   return {
     id: user.id,
@@ -105,13 +138,21 @@ router.get("/announcements", requirePermission(PERMISSIONS.ANNOUNCEMENTS_MANAGE)
     }
 
     if (status === "active") {
-      where.push("is_active = 1");
+      where.push("is_active = 1 AND (published_at IS NULL OR published_at <= NOW()) AND (expires_at IS NULL OR expires_at > NOW())");
     } else if (status === "hidden") {
       where.push("is_active = 0");
+    } else if (status === "expired") {
+      where.push("is_active = 1 AND expires_at IS NOT NULL AND expires_at <= NOW()");
     }
 
     const [announcements] = await db.query(
-      `SELECT id, title, content, is_active, published_at, created_at, updated_at
+      `SELECT id, title, content, is_active, published_at, expires_at, created_at, updated_at,
+        CASE
+          WHEN is_active = 0 THEN 'hidden'
+          WHEN expires_at IS NOT NULL AND expires_at <= NOW() THEN 'expired'
+          WHEN published_at IS NOT NULL AND published_at > NOW() THEN 'scheduled'
+          ELSE 'active'
+        END AS status
        FROM announcements
        ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
        ORDER BY id ASC
@@ -135,7 +176,7 @@ router.get("/announcements/:id", requirePermission(PERMISSIONS.ANNOUNCEMENTS_MAN
     }
 
     const [announcements] = await db.query(
-      `SELECT id, title, content, is_active, published_at, created_at, updated_at
+      `SELECT id, title, content, is_active, published_at, expires_at, created_at, updated_at
        FROM announcements
        WHERE id = ?`,
       [announcementId]
@@ -158,21 +199,27 @@ router.post("/announcements", requirePermission(PERMISSIONS.ANNOUNCEMENTS_MANAGE
       title,
       content = "",
       isActive = true,
-      publishedAt = null
+      publishedAt = null,
+      validityDays = null,
+      expiresAt = null
     } = req.body;
 
     if (!String(title || "").trim()) {
       return res.status(400).json({ message: "Vui long nhap tieu de thong bao" });
     }
 
+    const resolvedPublishedAt = publishedAt || null;
+    const resolvedExpiresAt = resolveAnnouncementExpiry(resolvedPublishedAt, validityDays, expiresAt);
+
     const [result] = await db.query(
-      `INSERT INTO announcements (title, content, is_active, published_at)
-       VALUES (?, ?, ?, ?)`,
+      `INSERT INTO announcements (title, content, is_active, published_at, expires_at)
+       VALUES (?, ?, ?, ?, ?)`,
       [
         String(title).trim(),
         String(content || "").trim(),
         isActive ? 1 : 0,
-        publishedAt || null
+        resolvedPublishedAt,
+        resolvedExpiresAt
       ]
     );
 
@@ -190,7 +237,9 @@ router.put("/announcements/:id", requirePermission(PERMISSIONS.ANNOUNCEMENTS_MAN
       title,
       content = "",
       isActive = true,
-      publishedAt = null
+      publishedAt = null,
+      validityDays = null,
+      expiresAt = null
     } = req.body;
 
     if (!Number.isInteger(announcementId) || announcementId <= 0) {
@@ -201,15 +250,19 @@ router.put("/announcements/:id", requirePermission(PERMISSIONS.ANNOUNCEMENTS_MAN
       return res.status(400).json({ message: "Vui long nhap tieu de thong bao" });
     }
 
+    const resolvedPublishedAt = publishedAt || null;
+    const resolvedExpiresAt = resolveAnnouncementExpiry(resolvedPublishedAt, validityDays, expiresAt);
+
     const [result] = await db.query(
       `UPDATE announcements
-       SET title = ?, content = ?, is_active = ?, published_at = ?
+       SET title = ?, content = ?, is_active = ?, published_at = ?, expires_at = ?
        WHERE id = ?`,
       [
         String(title).trim(),
         String(content || "").trim(),
         isActive ? 1 : 0,
-        publishedAt || null,
+        resolvedPublishedAt,
+        resolvedExpiresAt,
         announcementId
       ]
     );
