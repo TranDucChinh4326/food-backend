@@ -41,7 +41,18 @@ app.use(cors({
     callback(new Error("Origin is not allowed by CORS"));
   }
 }));
-app.use(express.json());
+app.use(express.json({ limit: "8mb" }));
+app.use(express.urlencoded({ extended: true, limit: "8mb" }));
+
+app.use((error, req, res, next) => {
+  if (error?.type === "entity.too.large") {
+    return res.status(413).json({
+      message: "Anh qua lon. Vui long chon anh nho hon 1.5MB."
+    });
+  }
+
+  return next(error);
+});
 
 app.use("/api/foods", require("./routes/foods"));
 app.use("/api/auth", require("./routes/auth"));
