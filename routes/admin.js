@@ -121,7 +121,7 @@ router.get("/announcements", requirePermission(PERMISSIONS.ANNOUNCEMENTS_MANAGE)
       `SELECT id, title, content, link_url, is_important, is_active, published_at, created_at, updated_at
        FROM announcements
        ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
-       ORDER BY COALESCE(published_at, created_at) DESC, id DESC
+       ORDER BY id ASC
        LIMIT 200`,
       params
     );

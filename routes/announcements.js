@@ -10,7 +10,7 @@ router.get("/", async (req, res) => {
       `SELECT id, title, content, link_url, is_important, published_at
        FROM announcements
        WHERE is_active = 1
-       ORDER BY is_important DESC, COALESCE(published_at, created_at) DESC, id DESC
+       ORDER BY id ASC
        LIMIT ?`,
       [limit]
     );
