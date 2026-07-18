@@ -901,7 +901,7 @@ router.get("/users", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISSIONS
     const where = [];
 
     if (type === "staff") {
-      where.push("role <> 'USER' AND role <> 'ADMIN'");
+      where.push(String(req.user.role || "").toUpperCase() === ADMIN_ROLE ? "role <> 'USER'" : "role <> 'USER' AND role <> 'ADMIN'");
     } else if (type === "customers") {
       where.push("role = 'USER'");
     }
