@@ -92,6 +92,19 @@ CREATE TABLE IF NOT EXISTS order_details (
   CONSTRAINT order_details_food_fk FOREIGN KEY (food_id) REFERENCES foods (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS announcements (
+  id INT NOT NULL AUTO_INCREMENT,
+  title VARCHAR(255) NOT NULL,
+  content TEXT DEFAULT NULL,
+  link_url VARCHAR(500) DEFAULT NULL,
+  is_important TINYINT DEFAULT 0,
+  is_active TINYINT DEFAULT 1,
+  published_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 INSERT IGNORE INTO categories (id, name) VALUES
   (1, 'Burger'),
   (2, 'Pizza'),
@@ -105,3 +118,8 @@ INSERT IGNORE INTO foods (id, name, category_id, price, description, image, is_a
   (4, 'Ga ran gion cay', 1, 69000, 'Ga ran vang gion, vi cay nhe, an kem tuong ot.', 'https://images.unsplash.com/photo-1626645738196-c2a7c87a8f58', 1),
   (5, 'Tra dao cam sa', 4, 29000, 'Tra dao thanh mat, huong cam sa thom nhe.', 'https://images.unsplash.com/photo-1556679343-c7306c1976bc', 1),
   (6, 'Pho bo tai', 3, 55000, 'Pho bo nong hoi, nuoc dung ngot thanh, thit bo mem.', 'https://images.unsplash.com/photo-1582878826629-29b7ad1cdc43', 1);
+
+INSERT IGNORE INTO announcements (id, title, content, link_url, is_important, is_active) VALUES
+  (1, 'Mien phi giao hang cho don tu 150.000d', 'FoodHub mien phi giao hang trong khu vuc noi thanh cho cac don hang tu 150.000d.', 'menu.html', 1, 1),
+  (2, 'Cap nhat thuc don moi cuoi tuan', 'Nhieu mon an moi se duoc bo sung vao thuc don vao thu bay hang tuan.', 'menu.html', 0, 1),
+  (3, 'Ho tro dat hang nhanh qua hotline', 'Neu can ho tro don hang, vui long lien he hotline tren trang lien he cua FoodHub.', 'contact.html', 0, 1);

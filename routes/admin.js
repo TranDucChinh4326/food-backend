@@ -86,9 +86,182 @@ router.get("/permissions", requirePermission(PERMISSIONS.ROLES_MANAGE), (req, re
       { value: PERMISSIONS.USERS_MANAGE, label: "Quan ly khach hang" },
       { value: PERMISSIONS.STAFF_MANAGE, label: "Quan ly nhan vien" },
       { value: PERMISSIONS.ROLES_MANAGE, label: "Cap phat quyen" },
-      { value: PERMISSIONS.PASSWORD_RESET, label: "Dat lai mat khau theo yeu cau" }
+      { value: PERMISSIONS.PASSWORD_RESET, label: "Dat lai mat khau theo yeu cau" },
+      { value: PERMISSIONS.ANNOUNCEMENTS_MANAGE, label: "Quan ly thong bao" }
     ]
   });
+});
+
+router.get("/announcements", requirePermission(PERMISSIONS.ANNOUNCEMENTS_MANAGE), async (req, res) => {
+  try {
+    const search = String(req.query.q || "").trim();
+    const status = String(req.query.status || "all").toLowerCase();
+    const important = String(req.query.important || "all").toLowerCase();
+    const where = [];
+    const params = [];
+
+    if (search) {
+      where.push("(title LIKE ? OR content LIKE ?)");
+      params.push(`%${search}%`, `%${search}%`);
+    }
+
+    if (status === "active") {
+      where.push("is_active = 1");
+    } else if (status === "hidden") {
+      where.push("is_active = 0");
+    }
+
+    if (important === "important") {
+      where.push("is_important = 1");
+    } else if (important === "normal") {
+      where.push("is_important = 0");
+    }
+
+    const [announcements] = await db.query(
+      `SELECT id, title, content, link_url, is_important, is_active, published_at, created_at, updated_at
+       FROM announcements
+       ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+       ORDER BY COALESCE(published_at, created_at) DESC, id DESC
+       LIMIT 200`,
+      params
+    );
+
+    res.json(announcements);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Loi server" });
+  }
+});
+
+router.get("/announcements/:id", requirePermission(PERMISSIONS.ANNOUNCEMENTS_MANAGE), async (req, res) => {
+  try {
+    const announcementId = Number(req.params.id);
+
+    if (!Number.isInteger(announcementId) || announcementId <= 0) {
+      return res.status(400).json({ message: "Ma thong bao khong hop le" });
+    }
+
+    const [announcements] = await db.query(
+      `SELECT id, title, content, link_url, is_important, is_active, published_at, created_at, updated_at
+       FROM announcements
+       WHERE id = ?`,
+      [announcementId]
+    );
+
+    if (announcements.length === 0) {
+      return res.status(404).json({ message: "Khong tim thay thong bao" });
+    }
+
+    res.json(announcements[0]);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Loi server" });
+  }
+});
+
+router.post("/announcements", requirePermission(PERMISSIONS.ANNOUNCEMENTS_MANAGE), async (req, res) => {
+  try {
+    const {
+      title,
+      content = "",
+      linkUrl = "",
+      isImportant = false,
+      isActive = true,
+      publishedAt = null
+    } = req.body;
+
+    if (!String(title || "").trim()) {
+      return res.status(400).json({ message: "Vui long nhap tieu de thong bao" });
+    }
+
+    const [result] = await db.query(
+      `INSERT INTO announcements (title, content, link_url, is_important, is_active, published_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        String(title).trim(),
+        String(content || "").trim(),
+        String(linkUrl || "").trim() || null,
+        isImportant ? 1 : 0,
+        isActive ? 1 : 0,
+        publishedAt || null
+      ]
+    );
+
+    res.status(201).json({ message: "Da tao thong bao", id: result.insertId });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Khong the tao thong bao" });
+  }
+});
+
+router.put("/announcements/:id", requirePermission(PERMISSIONS.ANNOUNCEMENTS_MANAGE), async (req, res) => {
+  try {
+    const announcementId = Number(req.params.id);
+    const {
+      title,
+      content = "",
+      linkUrl = "",
+      isImportant = false,
+      isActive = true,
+      publishedAt = null
+    } = req.body;
+
+    if (!Number.isInteger(announcementId) || announcementId <= 0) {
+      return res.status(400).json({ message: "Ma thong bao khong hop le" });
+    }
+
+    if (!String(title || "").trim()) {
+      return res.status(400).json({ message: "Vui long nhap tieu de thong bao" });
+    }
+
+    const [result] = await db.query(
+      `UPDATE announcements
+       SET title = ?, content = ?, link_url = ?, is_important = ?, is_active = ?, published_at = ?
+       WHERE id = ?`,
+      [
+        String(title).trim(),
+        String(content || "").trim(),
+        String(linkUrl || "").trim() || null,
+        isImportant ? 1 : 0,
+        isActive ? 1 : 0,
+        publishedAt || null,
+        announcementId
+      ]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "Khong tim thay thong bao" });
+    }
+
+    res.json({ message: "Da cap nhat thong bao" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Khong the cap nhat thong bao" });
+  }
+});
+
+router.delete("/announcements/:id", requirePermission(PERMISSIONS.ANNOUNCEMENTS_MANAGE), async (req, res) => {
+  try {
+    const announcementId = Number(req.params.id);
+
+    if (!Number.isInteger(announcementId) || announcementId <= 0) {
+      return res.status(400).json({ message: "Ma thong bao khong hop le" });
+    }
+
+    const [result] = await db.query(
+      "UPDATE announcements SET is_active = 0 WHERE id = ?",
+      [announcementId]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "Khong tim thay thong bao" });
+    }
+
+    res.json({ message: "Da an thong bao" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Khong the an thong bao" });
+  }
 });
 
 router.get("/orders", requirePermission(PERMISSIONS.ORDERS_MANAGE), async (req, res) => {

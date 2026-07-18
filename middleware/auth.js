@@ -9,7 +9,8 @@ const PERMISSIONS = {
   USERS_MANAGE: "users.manage",
   STAFF_MANAGE: "staff.manage",
   ROLES_MANAGE: "roles.manage",
-  PASSWORD_RESET: "password.reset"
+  PASSWORD_RESET: "password.reset",
+  ANNOUNCEMENTS_MANAGE: "announcements.manage"
 };
 
 function parsePermissions(value) {

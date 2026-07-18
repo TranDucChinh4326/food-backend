@@ -45,6 +45,7 @@ app.use(express.json());
 app.use("/api/foods", require("./routes/foods"));
 app.use("/api/auth", require("./routes/auth"));
 app.use("/api/orders", require("./routes/orders"));
+app.use("/api/announcements", require("./routes/announcements"));
 app.use("/api/admin", require("./routes/admin"));
 
 app.get("/", (req, res) => {
