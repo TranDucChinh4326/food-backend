@@ -70,6 +70,41 @@ function normalizeDiscountCode(code) {
   return String(code || "").trim().toUpperCase().replace(/\s+/g, "");
 }
 
+function slugifyCategory(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/đ/g, "d")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+async function createUniqueCategorySlug(name, currentId = null) {
+  const baseSlug = slugifyCategory(name) || `danh-muc-${Date.now()}`;
+  let slug = baseSlug;
+  let counter = 2;
+
+  while (true) {
+    const params = currentId ? [slug, currentId] : [slug];
+    const sql = currentId
+      ? "SELECT id FROM categories WHERE slug = ? AND id <> ? LIMIT 1"
+      : "SELECT id FROM categories WHERE slug = ? LIMIT 1";
+    const [rows] = await db.query(sql, params);
+
+    if (rows.length === 0) return slug;
+
+    slug = `${baseSlug}-${counter}`;
+    counter += 1;
+  }
+}
+
+function normalizeCategoryType(type) {
+  const value = String(type || "").trim().toLowerCase();
+  if (value === "drink" || value === "food") return value;
+  return "food";
+}
+
 function parsePositiveNumber(value, fallback = 0) {
   const number = Number(value);
   if (!Number.isFinite(number) || number < 0) return fallback;
@@ -724,6 +759,7 @@ router.patch("/orders/:id/status", requirePermission(PERMISSIONS.ORDERS_MANAGE),
 router.get("/categories", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req, res) => {
   try {
     let categories;
+    const includeInactive = req.query.includeInactive === "1" || req.query.includeInactive === "true";
 
     try {
       [categories] = await db.query(
@@ -738,7 +774,7 @@ router.get("/categories", requirePermission(PERMISSIONS.FOODS_MANAGE), async (re
                 parent_categories.slug AS parentSlug
          FROM categories
          LEFT JOIN categories AS parent_categories ON parent_categories.id = categories.parent_id
-         WHERE categories.is_active = 1
+         ${includeInactive ? "" : "WHERE categories.is_active = 1"}
          ORDER BY categories.type ASC, categories.parent_id IS NULL DESC, categories.parent_id ASC, categories.sort_order ASC, categories.name ASC`
       );
     } catch (error) {
@@ -761,6 +797,110 @@ router.get("/categories", requirePermission(PERMISSIONS.FOODS_MANAGE), async (re
     }
 
     res.json(categories);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Loi server" });
+  }
+});
+
+router.post("/categories", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req, res) => {
+  try {
+    const name = String(req.body.name || "").trim();
+    const type = normalizeCategoryType(req.body.type);
+    const parentId = req.body.parentId ? Number(req.body.parentId) : null;
+    const sortOrder = parsePositiveNumber(req.body.sortOrder, 0);
+    const isActive = req.body.isActive === false || req.body.isActive === 0 || req.body.isActive === "0" ? 0 : 1;
+
+    if (!name) {
+      return res.status(400).json({ message: "Vui long nhap ten danh muc" });
+    }
+
+    if (parentId) {
+      const [parents] = await db.query("SELECT id FROM categories WHERE id = ? LIMIT 1", [parentId]);
+      if (parents.length === 0) {
+        return res.status(400).json({ message: "Danh muc cha khong hop le" });
+      }
+    }
+
+    const slug = await createUniqueCategorySlug(name);
+    const [result] = await db.query(
+      `INSERT INTO categories (name, slug, type, parent_id, sort_order, is_active)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [name, slug, type, parentId, sortOrder, isActive]
+    );
+
+    res.status(201).json({ message: "Them danh muc thanh cong", id: result.insertId, slug });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Loi server" });
+  }
+});
+
+router.put("/categories/:id", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req, res) => {
+  try {
+    const categoryId = Number(req.params.id);
+    const name = String(req.body.name || "").trim();
+    const type = normalizeCategoryType(req.body.type);
+    const parentId = req.body.parentId ? Number(req.body.parentId) : null;
+    const sortOrder = parsePositiveNumber(req.body.sortOrder, 0);
+    const isActive = req.body.isActive === false || req.body.isActive === 0 || req.body.isActive === "0" ? 0 : 1;
+
+    if (!Number.isInteger(categoryId) || categoryId <= 0) {
+      return res.status(400).json({ message: "Ma danh muc khong hop le" });
+    }
+
+    if (!name) {
+      return res.status(400).json({ message: "Vui long nhap ten danh muc" });
+    }
+
+    if (parentId === categoryId) {
+      return res.status(400).json({ message: "Danh muc cha khong duoc trung voi danh muc hien tai" });
+    }
+
+    if (parentId) {
+      const [parents] = await db.query("SELECT id FROM categories WHERE id = ? LIMIT 1", [parentId]);
+      if (parents.length === 0) {
+        return res.status(400).json({ message: "Danh muc cha khong hop le" });
+      }
+    }
+
+    const slug = await createUniqueCategorySlug(name, categoryId);
+    const [result] = await db.query(
+      `UPDATE categories
+       SET name = ?, slug = ?, type = ?, parent_id = ?, sort_order = ?, is_active = ?
+       WHERE id = ?`,
+      [name, slug, type, parentId, sortOrder, isActive, categoryId]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "Khong tim thay danh muc" });
+    }
+
+    res.json({ message: "Cap nhat danh muc thanh cong", slug });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Loi server" });
+  }
+});
+
+router.delete("/categories/:id", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req, res) => {
+  try {
+    const categoryId = Number(req.params.id);
+
+    if (!Number.isInteger(categoryId) || categoryId <= 0) {
+      return res.status(400).json({ message: "Ma danh muc khong hop le" });
+    }
+
+    const [result] = await db.query(
+      "UPDATE categories SET is_active = 0 WHERE id = ? OR parent_id = ?",
+      [categoryId, categoryId]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "Khong tim thay danh muc" });
+    }
+
+    res.json({ message: "Da an danh muc" });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Loi server" });
