@@ -61,7 +61,10 @@ router.get("/categories", async (req, res) => {
                  LEFT JOIN categories AS parent_categories ON parent_categories.id = categories.parent_id
                  WHERE categories.is_active = 1
                    AND (parent_categories.id IS NULL OR parent_categories.is_active = 1)
-                 ORDER BY categories.type ASC, categories.parent_id IS NULL DESC, categories.parent_id ASC, categories.sort_order ASC, categories.name ASC`
+                 ORDER BY COALESCE(parent_categories.sort_order, categories.sort_order) ASC,
+                          categories.parent_id IS NOT NULL ASC,
+                          categories.sort_order ASC,
+                          categories.name ASC`
             );
         } catch (error) {
             const [oldCategories] = await db.query(

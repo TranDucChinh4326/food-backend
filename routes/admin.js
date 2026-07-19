@@ -99,10 +99,21 @@ async function createUniqueCategorySlug(name, currentId = null) {
   }
 }
 
-function normalizeCategoryType(type) {
-  const value = String(type || "").trim().toLowerCase();
-  if (value === "drink" || value === "food") return value;
-  return "food";
+async function resolveCategoryType(parentId, fallbackSlug) {
+  if (!parentId) {
+    return fallbackSlug || "category";
+  }
+
+  const [parents] = await db.query(
+    "SELECT id, slug, type FROM categories WHERE id = ? LIMIT 1",
+    [parentId]
+  );
+
+  if (parents.length === 0) {
+    return null;
+  }
+
+  return parents[0].type || parents[0].slug || fallbackSlug || "category";
 }
 
 function parsePositiveNumber(value, fallback = 0) {
@@ -775,7 +786,10 @@ router.get("/categories", requirePermission(PERMISSIONS.FOODS_MANAGE), async (re
          FROM categories
          LEFT JOIN categories AS parent_categories ON parent_categories.id = categories.parent_id
          ${includeInactive ? "" : "WHERE categories.is_active = 1"}
-         ORDER BY categories.type ASC, categories.parent_id IS NULL DESC, categories.parent_id ASC, categories.sort_order ASC, categories.name ASC`
+         ORDER BY COALESCE(parent_categories.sort_order, categories.sort_order) ASC,
+                  categories.parent_id IS NOT NULL ASC,
+                  categories.sort_order ASC,
+                  categories.name ASC`
       );
     } catch (error) {
       const [oldCategories] = await db.query(
@@ -806,7 +820,6 @@ router.get("/categories", requirePermission(PERMISSIONS.FOODS_MANAGE), async (re
 router.post("/categories", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req, res) => {
   try {
     const name = String(req.body.name || "").trim();
-    const type = normalizeCategoryType(req.body.type);
     const parentId = req.body.parentId ? Number(req.body.parentId) : null;
     const sortOrder = parsePositiveNumber(req.body.sortOrder, 0);
     const isActive = req.body.isActive === false || req.body.isActive === 0 || req.body.isActive === "0" ? 0 : 1;
@@ -815,14 +828,13 @@ router.post("/categories", requirePermission(PERMISSIONS.FOODS_MANAGE), async (r
       return res.status(400).json({ message: "Vui long nhap ten danh muc" });
     }
 
-    if (parentId) {
-      const [parents] = await db.query("SELECT id FROM categories WHERE id = ? LIMIT 1", [parentId]);
-      if (parents.length === 0) {
-        return res.status(400).json({ message: "Danh muc cha khong hop le" });
-      }
+    const slug = await createUniqueCategorySlug(name);
+    const type = await resolveCategoryType(parentId, slug);
+
+    if (!type) {
+      return res.status(400).json({ message: "Danh muc cha khong hop le" });
     }
 
-    const slug = await createUniqueCategorySlug(name);
     const [result] = await db.query(
       `INSERT INTO categories (name, slug, type, parent_id, sort_order, is_active)
        VALUES (?, ?, ?, ?, ?, ?)`,
@@ -840,7 +852,6 @@ router.put("/categories/:id", requirePermission(PERMISSIONS.FOODS_MANAGE), async
   try {
     const categoryId = Number(req.params.id);
     const name = String(req.body.name || "").trim();
-    const type = normalizeCategoryType(req.body.type);
     const parentId = req.body.parentId ? Number(req.body.parentId) : null;
     const sortOrder = parsePositiveNumber(req.body.sortOrder, 0);
     const isActive = req.body.isActive === false || req.body.isActive === 0 || req.body.isActive === "0" ? 0 : 1;
@@ -857,14 +868,13 @@ router.put("/categories/:id", requirePermission(PERMISSIONS.FOODS_MANAGE), async
       return res.status(400).json({ message: "Danh muc cha khong duoc trung voi danh muc hien tai" });
     }
 
-    if (parentId) {
-      const [parents] = await db.query("SELECT id FROM categories WHERE id = ? LIMIT 1", [parentId]);
-      if (parents.length === 0) {
-        return res.status(400).json({ message: "Danh muc cha khong hop le" });
-      }
+    const slug = await createUniqueCategorySlug(name, categoryId);
+    const type = await resolveCategoryType(parentId, slug);
+
+    if (!type) {
+      return res.status(400).json({ message: "Danh muc cha khong hop le" });
     }
 
-    const slug = await createUniqueCategorySlug(name, categoryId);
     const [result] = await db.query(
       `UPDATE categories
        SET name = ?, slug = ?, type = ?, parent_id = ?, sort_order = ?, is_active = ?
