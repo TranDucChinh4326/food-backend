@@ -134,6 +134,23 @@ CREATE TABLE IF NOT EXISTS discounts (
   UNIQUE KEY discount_code (code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS advertisements (
+  id INT NOT NULL AUTO_INCREMENT,
+  title VARCHAR(150) NOT NULL,
+  image LONGTEXT NOT NULL,
+  link_url VARCHAR(500) DEFAULT NULL,
+  position VARCHAR(20) NOT NULL DEFAULT 'both',
+  sort_order INT NOT NULL DEFAULT 0,
+  starts_at TIMESTAMP NULL DEFAULT NULL,
+  expires_at TIMESTAMP NULL DEFAULT NULL,
+  is_active TINYINT DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY advertisement_active (is_active),
+  KEY advertisement_position (position)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 INSERT IGNORE INTO categories (id, name, slug, type, parent_id, sort_order, is_active) VALUES
   (100, 'Do an', 'do-an', 'food', NULL, 1, 1),
   (101, 'Nuoc uong', 'nuoc-uong', 'drink', NULL, 2, 1);

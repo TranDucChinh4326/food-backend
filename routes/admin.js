@@ -239,6 +239,7 @@ router.get("/permissions", requirePermission(PERMISSIONS.ROLES_MANAGE), (req, re
       { value: PERMISSIONS.ROLES_MANAGE, label: "Cap phat quyen" },
       { value: PERMISSIONS.PASSWORD_RESET, label: "Dat lai mat khau theo yeu cau" },
       { value: PERMISSIONS.ANNOUNCEMENTS_MANAGE, label: "Quan ly thong bao" },
+      { value: PERMISSIONS.ADS_MANAGE, label: "Quan ly quang cao" },
       { value: PERMISSIONS.DISCOUNTS_MANAGE, label: "Quan ly ma giam gia" },
       { value: PERMISSIONS.STATS_VIEW, label: "Xem thong ke" }
     ]

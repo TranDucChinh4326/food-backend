@@ -12,6 +12,7 @@ const PERMISSIONS = {
   PASSWORD_RESET: "password.reset",
   ANNOUNCEMENTS_MANAGE: "announcements.manage",
   DISCOUNTS_MANAGE: "discounts.manage",
+  ADS_MANAGE: "ads.manage",
   STATS_VIEW: "stats.view"
 };
 

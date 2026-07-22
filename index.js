@@ -58,6 +58,7 @@ app.use("/api/foods", require("./routes/foods"));
 app.use("/api/auth", require("./routes/auth"));
 app.use("/api/orders", require("./routes/orders"));
 app.use("/api/announcements", require("./routes/announcements"));
+app.use("/api/advertisements", require("./routes/advertisements"));
 app.use("/api/admin", require("./routes/admin"));
 
 app.get("/", (req, res) => {
@@ -111,6 +112,29 @@ async function ensureSchema() {
     `);
   } catch (error) {
     console.error("Discount schema check failed:", error.message);
+  }
+
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS advertisements (
+        id INT NOT NULL AUTO_INCREMENT,
+        title VARCHAR(150) NOT NULL,
+        image LONGTEXT NOT NULL,
+        link_url VARCHAR(500) DEFAULT NULL,
+        position VARCHAR(20) NOT NULL DEFAULT 'both',
+        sort_order INT NOT NULL DEFAULT 0,
+        starts_at TIMESTAMP NULL DEFAULT NULL,
+        expires_at TIMESTAMP NULL DEFAULT NULL,
+        is_active TINYINT DEFAULT 1,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        KEY advertisement_active (is_active),
+        KEY advertisement_position (position)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+  } catch (error) {
+    console.error("Advertisement schema check failed:", error.message);
   }
 }
 
