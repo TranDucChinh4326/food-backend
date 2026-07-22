@@ -2,6 +2,19 @@
 
 Backend Express + MySQL cho website FoodHub.
 
+## Cau truc file
+
+```text
+food-backend/
+  index.js        Entry Express server
+  db.js           Ket noi MySQL
+  routes/         API auth, food, order, admin, thong bao, quang cao
+  middleware/     Middleware xac thuc JWT va phan quyen
+  migrations/     SQL nang cap database theo tung dot
+  schema.sql      Database schema ban dau
+  docs/           Ghi chu cau truc va van hanh
+```
+
 ## Chay local
 
 ```bash
