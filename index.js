@@ -133,6 +133,7 @@ async function ensureSchema() {
         KEY advertisement_position (position)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
+    await db.query("ALTER TABLE advertisements MODIFY image LONGTEXT NOT NULL");
   } catch (error) {
     console.error("Advertisement schema check failed:", error.message);
   }
