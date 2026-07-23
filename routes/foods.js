@@ -8,13 +8,21 @@ router.get("/", async (req, res) => {
 
         try {
             [foods] = await db.query(
-                `SELECT foods.*,
-                        categories.name AS category_name,
-                        categories.slug AS category_slug,
-                        categories.type AS category_type,
-                        categories.parent_id AS parent_category_id,
-                        parent_categories.name AS parent_category_name,
-                        parent_categories.slug AS parent_category_slug
+                `SELECT foods.id,
+                       foods.name,
+                       foods.category_id,
+                       foods.price,
+                       foods.stock_quantity,
+                       foods.description,
+                       foods.image,
+                       foods.is_active,
+                       foods.created_at,
+                       categories.name AS category_name,
+                       categories.slug AS category_slug,
+                       categories.type AS category_type,
+                       categories.parent_id AS parent_category_id,
+                       parent_categories.name AS parent_category_name,
+                       parent_categories.slug AS parent_category_slug
                  FROM foods
                  LEFT JOIN categories ON categories.id = foods.category_id
                  LEFT JOIN categories AS parent_categories ON parent_categories.id = categories.parent_id
@@ -25,7 +33,16 @@ router.get("/", async (req, res) => {
             );
         } catch (error) {
             [foods] = await db.query(
-                `SELECT foods.*, categories.name AS category_name
+                `SELECT foods.id,
+                       foods.name,
+                       foods.category_id,
+                       foods.price,
+                       foods.stock_quantity,
+                       foods.description,
+                       foods.image,
+                       foods.is_active,
+                       foods.created_at,
+                       categories.name AS category_name
                  FROM foods
                  LEFT JOIN categories ON categories.id = foods.category_id
                  WHERE foods.is_active = 1

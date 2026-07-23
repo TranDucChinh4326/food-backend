@@ -63,11 +63,15 @@ router.post("/", requireAuth, async (req, res) => {
       return res.status(400).json({ message: "Gio hang khong hop le" });
     }
 
-    const foodIds = normalizedItems.map(item => item.foodId);
-    const uniqueFoodIds = [...new Set(foodIds)];
+    const demandByFoodId = normalizedItems.reduce((map, item) => {
+      map[item.foodId] = (map[item.foodId] || 0) + item.quantity;
+      return map;
+    }, {});
+
+    const uniqueFoodIds = Object.keys(demandByFoodId).map(Number);
     const placeholders = uniqueFoodIds.map(() => "?").join(",");
     const [foods] = await connection.query(
-      `SELECT id, name, price FROM foods WHERE is_active = 1 AND id IN (${placeholders})`,
+      `SELECT id, name, price, stock_quantity FROM foods WHERE is_active = 1 AND id IN (${placeholders})`,
       uniqueFoodIds
     );
 
@@ -76,6 +80,15 @@ router.post("/", requireAuth, async (req, res) => {
     }
 
     const foodMap = new Map(foods.map(food => [Number(food.id), food]));
+    const outOfStockFood = uniqueFoodIds.find(foodId => {
+      const food = foodMap.get(foodId);
+      return Number(food.stock_quantity || 0) < Number(demandByFoodId[foodId] || 0);
+    });
+
+    if (outOfStockFood) {
+      return res.status(400).json({ message: "Mot so mon an khong du so luong ton kho" });
+    }
+
     const orderItems = normalizedItems.map(item => {
       const food = foodMap.get(item.foodId);
       const price = Number(food.price);
@@ -123,6 +136,19 @@ router.post("/", requireAuth, async (req, res) => {
       [detailValues]
     );
 
+    for (const [foodId, quantity] of Object.entries(demandByFoodId)) {
+      const [stockResult] = await connection.query(
+        `UPDATE foods
+         SET stock_quantity = stock_quantity - ?
+         WHERE id = ? AND stock_quantity >= ?`,
+        [quantity, Number(foodId), quantity]
+      );
+
+      if (stockResult.affectedRows === 0) {
+        throw new Error("Inventory update failed");
+      }
+    }
+
     await connection.commit();
 
     res.status(201).json({
@@ -137,7 +163,9 @@ router.post("/", requireAuth, async (req, res) => {
   } catch (error) {
     await connection.rollback();
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(error.message === "Inventory update failed" ? 400 : 500).json({
+      message: error.message === "Inventory update failed" ? "Mot so mon an khong du so luong ton kho" : "Loi server"
+    });
   } finally {
     connection.release();
   }

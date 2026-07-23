@@ -962,16 +962,18 @@ router.get("/foods", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req, re
 
 router.post("/foods", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req, res) => {
   try {
-    const { name, categoryId, price, description = "", image = "", isActive = 1 } = req.body;
+    const { name, categoryId, price, stockQuantity, description = "", image = "", isActive = 1 } = req.body;
 
     if (!name || !categoryId || !price) {
       return res.status(400).json({ message: "Vui long nhap ten mon, danh muc va gia" });
     }
 
+    const normalizedStock = Math.max(0, parsePositiveNumber(stockQuantity, 0));
+
     const [result] = await db.query(
-      `INSERT INTO foods (name, category_id, price, description, image, is_active)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [name.trim(), Number(categoryId), Number(price), description.trim(), image.trim(), Number(isActive)]
+      `INSERT INTO foods (name, category_id, price, stock_quantity, description, image, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [name.trim(), Number(categoryId), Number(price), normalizedStock, description.trim(), image.trim(), Number(isActive)]
     );
 
     res.status(201).json({ message: "Them mon thanh cong", id: result.insertId });
@@ -984,7 +986,7 @@ router.post("/foods", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req, r
 router.put("/foods/:id", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req, res) => {
   try {
     const foodId = Number(req.params.id);
-    const { name, categoryId, price, description = "", image = "", isActive = 1 } = req.body;
+    const { name, categoryId, price, stockQuantity, description = "", image = "", isActive = 1 } = req.body;
 
     if (!Number.isInteger(foodId) || foodId <= 0) {
       return res.status(400).json({ message: "Ma mon khong hop le" });
@@ -994,14 +996,17 @@ router.put("/foods/:id", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req
       return res.status(400).json({ message: "Vui long nhap ten mon, danh muc va gia" });
     }
 
+    const normalizedStock = Math.max(0, parsePositiveNumber(stockQuantity, 0));
+
     const [result] = await db.query(
       `UPDATE foods
-       SET name = ?, category_id = ?, price = ?, description = ?, image = ?, is_active = ?
+       SET name = ?, category_id = ?, price = ?, stock_quantity = ?, description = ?, image = ?, is_active = ?
        WHERE id = ?`,
       [
         name.trim(),
         Number(categoryId),
         Number(price),
+        normalizedStock,
         description.trim(),
         image.trim(),
         Number(isActive),

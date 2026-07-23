@@ -83,6 +83,15 @@ async function ensureSchema() {
   }
 
   try {
+    await db.query("ALTER TABLE foods ADD COLUMN stock_quantity INT NOT NULL DEFAULT 0");
+    console.log("Added foods.stock_quantity column");
+  } catch (error) {
+    if (error.code !== "ER_DUP_FIELDNAME") {
+      console.error("Food stock schema check failed:", error.message);
+    }
+  }
+
+  try {
     await db.query(`
       CREATE TABLE IF NOT EXISTS discounts (
         id INT NOT NULL AUTO_INCREMENT,

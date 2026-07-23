@@ -18,12 +18,14 @@ CREATE TABLE IF NOT EXISTS foods (
   name VARCHAR(150) NOT NULL,
   category_id INT DEFAULT NULL,
   price INT NOT NULL,
+  stock_quantity INT NOT NULL DEFAULT 0,
   description TEXT DEFAULT NULL,
   image LONGTEXT DEFAULT NULL,
   is_active TINYINT DEFAULT 1,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   KEY category_id (category_id),
+  KEY stock_quantity (stock_quantity),
   CONSTRAINT foods_category_fk FOREIGN KEY (category_id) REFERENCES categories (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
