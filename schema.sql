@@ -37,6 +37,8 @@ CREATE TABLE IF NOT EXISTS users (
   password_set TINYINT DEFAULT 1,
   role VARCHAR(20) DEFAULT 'USER',
   permissions TEXT DEFAULT NULL,
+  phone VARCHAR(20) DEFAULT NULL,
+  address VARCHAR(255) DEFAULT NULL,
   is_active TINYINT DEFAULT 1,
   email_verified TINYINT DEFAULT 0,
   email_verified_at TIMESTAMP NULL DEFAULT NULL,

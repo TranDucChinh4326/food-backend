@@ -22,6 +22,8 @@ function publicUser(user) {
     fullname: user.fullname,
     email: user.email,
     role: user.role,
+    phone: user.phone || null,
+    address: user.address || null,
     emailVerified: Boolean(user.email_verified),
     passwordSet: Boolean(user.password_set ?? true)
   };
@@ -561,7 +563,7 @@ router.post("/social/link/:provider", requireAuth, async (req, res) => {
 router.get("/me", requireAuth, async (req, res) => {
   try {
     const [users] = await db.query(
-      "SELECT id, fullname, email, role, email_verified AS emailVerified, password_set AS passwordSet, created_at FROM users WHERE id = ?",
+      "SELECT id, fullname, email, phone, address, role, email_verified AS emailVerified, password_set AS passwordSet, created_at FROM users WHERE id = ?",
       [req.user.id]
     );
 
@@ -578,8 +580,10 @@ router.get("/me", requireAuth, async (req, res) => {
 
 router.put("/me", requireAuth, async (req, res) => {
   try {
-    const { fullname, email } = req.body;
+    const { fullname, email, phone, address } = req.body;
     const normalizedEmail = normalizeEmail(email);
+    const normalizedPhone = String(phone || "").trim();
+    const normalizedAddress = String(address || "").trim();
 
     if (!fullname || !normalizedEmail) {
       return res.status(400).json({ message: "Vui long nhap ho ten va email" });
@@ -601,14 +605,16 @@ router.put("/me", requireAuth, async (req, res) => {
       `UPDATE users
        SET fullname = ?,
            email = ?,
+           phone = ?,
+           address = ?,
            email_verified = CASE WHEN ? THEN 0 ELSE email_verified END,
            email_verified_at = CASE WHEN ? THEN NULL ELSE email_verified_at END
        WHERE id = ?`,
-      [fullname.trim(), normalizedEmail, emailChanged, emailChanged, req.user.id]
+      [fullname.trim(), normalizedEmail, normalizedPhone || null, normalizedAddress || null, emailChanged, emailChanged, req.user.id]
     );
 
     const [users] = await db.query(
-      "SELECT id, fullname, email, role, email_verified AS emailVerified, password_set AS passwordSet, created_at FROM users WHERE id = ?",
+      "SELECT id, fullname, email, phone, address, role, email_verified AS emailVerified, password_set AS passwordSet, created_at FROM users WHERE id = ?",
       [req.user.id]
     );
 
@@ -619,16 +625,16 @@ router.put("/me", requireAuth, async (req, res) => {
       verificationUrl = await createEmailVerification(req.user.id);
 
       try {
-        emailSent = await sendVerificationEmail(normalizedEmail, fullname, verificationUrl);
+       emailSent = await sendVerificationEmail(normalizedEmail, fullname, verificationUrl);
       } catch (mailError) {
-        console.error(mailError);
+       console.error(mailError);
       }
     }
 
     res.json({
       message: emailChanged
-        ? "Da cap nhat email. Vui long xac thuc email moi."
-        : "Cap nhat tai khoan thanh cong",
+       ? "Da cap nhat email. Vui long xac thuc email moi."
+       : "Cap nhat tai khoan thanh cong",
       user: users[0],
       verificationUrl: emailChanged && shouldExposeVerificationUrl(emailSent) ? verificationUrl : undefined
     });

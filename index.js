@@ -92,6 +92,24 @@ async function ensureSchema() {
   }
 
   try {
+    await db.query("ALTER TABLE users ADD COLUMN phone VARCHAR(20) DEFAULT NULL");
+    console.log("Added users.phone column");
+  } catch (error) {
+    if (error.code !== "ER_DUP_FIELDNAME") {
+      console.error("User contact schema check failed:", error.message);
+    }
+  }
+
+  try {
+    await db.query("ALTER TABLE users ADD COLUMN address VARCHAR(255) DEFAULT NULL");
+    console.log("Added users.address column");
+  } catch (error) {
+    if (error.code !== "ER_DUP_FIELDNAME") {
+      console.error("User address schema check failed:", error.message);
+    }
+  }
+
+  try {
     await db.query(`
       CREATE TABLE IF NOT EXISTS discounts (
         id INT NOT NULL AUTO_INCREMENT,
