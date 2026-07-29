@@ -866,11 +866,12 @@ router.get("/me", requireAuth, async (req, res) => {
 
 router.put("/me", requireAuth, async (req, res) => {
   try {
-    const { username, fullname, email, phone, address } = req.body;
+    const { username, fullname, email, phone, address, avatar } = req.body;
     const normalizedUsername = normalizeUsername(username);
     const normalizedEmail = normalizeEmail(email);
     const normalizedPhone = String(phone || "").trim();
     const normalizedAddress = String(address || "").trim();
+    const normalizedAvatar = String(avatar || "").trim();
 
     if (!normalizedUsername || !fullname || !normalizedEmail) {
       return res.status(400).json({ message: "Vui long nhap username, ho ten va email" });
@@ -878,6 +879,10 @@ router.put("/me", requireAuth, async (req, res) => {
 
     if (!/^[a-z0-9._-]{3,40}$/.test(normalizedUsername)) {
       return res.status(400).json({ message: "Username chi gom chu thuong, so, dau cham, gach ngang hoac gach duoi va tu 3-40 ky tu" });
+    }
+
+    if (normalizedAvatar && normalizedAvatar.length > 500000) {
+      return res.status(413).json({ message: "Anh dai dien qua lon. Vui long chon anh nho hon." });
     }
 
     const [oldUsernames] = await db.query(
@@ -906,12 +911,13 @@ router.put("/me", requireAuth, async (req, res) => {
        SET username = ?,
            fullname = ?,
            email = ?,
+           avatar = ?,
            phone = ?,
            address = ?,
            email_verified = CASE WHEN ? THEN 0 ELSE email_verified END,
            email_verified_at = CASE WHEN ? THEN NULL ELSE email_verified_at END
        WHERE id = ?`,
-      [normalizedUsername, fullname.trim(), normalizedEmail, normalizedPhone || null, normalizedAddress || null, emailChanged, emailChanged, req.user.id]
+      [normalizedUsername, fullname.trim(), normalizedEmail, normalizedAvatar || null, normalizedPhone || null, normalizedAddress || null, emailChanged, emailChanged, req.user.id]
     );
 
     const [users] = await db.query(
