@@ -1,11 +1,6 @@
 ALTER TABLE users ADD COLUMN username VARCHAR(80) DEFAULT NULL;
-ALTER TABLE users ADD COLUMN full_name VARCHAR(150) DEFAULT NULL;
 ALTER TABLE users ADD COLUMN avatar VARCHAR(500) DEFAULT NULL;
-ALTER TABLE users ADD COLUMN password_hash VARCHAR(255) DEFAULT NULL;
 ALTER TABLE users ADD UNIQUE KEY username (username);
-
-UPDATE users SET full_name = fullname WHERE full_name IS NULL;
-UPDATE users SET password_hash = password WHERE password_hash IS NULL;
 
 CREATE TABLE IF NOT EXISTS user_auth_providers (
   id INT NOT NULL AUTO_INCREMENT,

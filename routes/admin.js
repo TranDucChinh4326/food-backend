@@ -1,6 +1,5 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
-const crypto = require("crypto");
 const db = require("../db");
 const {
   ADMIN_ROLE,
@@ -28,18 +27,6 @@ function parsePermissions(value) {
 
 function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
-}
-
-function normalizeUsername(username) {
-  return String(username || "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, "");
-}
-
-function makeUsernameFromEmail(email) {
-  const base = normalizeUsername(String(email || "").split("@")[0]) || "user";
-  return `${base}_${crypto.randomBytes(3).toString("hex")}`;
 }
 
 async function ensureLocalProvider(userId, email) {
@@ -1144,14 +1131,11 @@ router.post("/users", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISSION
 
     const [result] = await db.query(
       `INSERT INTO users
-       (username, fullname, full_name, email, password, password_hash, password_set, role, permissions, is_active, email_verified, email_verified_at)
-       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, 1, 1, NOW())`,
+       (fullname, email, password, password_set, role, permissions, is_active, email_verified, email_verified_at)
+       VALUES (?, ?, ?, 1, ?, ?, 1, 1, NOW())`,
       [
-        makeUsernameFromEmail(normalizedEmail),
-        String(fullname).trim(),
         String(fullname).trim(),
         normalizedEmail,
-        hashedPassword,
         hashedPassword,
         normalizedRole,
         savedPermissions
@@ -1193,14 +1177,11 @@ router.post("/staff", requirePermission(PERMISSIONS.STAFF_MANAGE), async (req, r
     const hashedPassword = await bcrypt.hash(password, 10);
     const [result] = await db.query(
       `INSERT INTO users
-       (username, fullname, full_name, email, password, password_hash, password_set, role, permissions, is_active, email_verified, email_verified_at)
-       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, 1, 1, NOW())`,
+       (fullname, email, password, password_set, role, permissions, is_active, email_verified, email_verified_at)
+       VALUES (?, ?, ?, 1, ?, ?, 1, 1, NOW())`,
       [
-        makeUsernameFromEmail(normalizedEmail),
-        String(fullname).trim(),
         String(fullname).trim(),
         normalizedEmail,
-        hashedPassword,
         hashedPassword,
         normalizedRole,
         canManageRoles(req.user) ? serializePermissions(permissions) : "[]"
@@ -1331,8 +1312,7 @@ router.put("/users/:id/password", requirePermission(PERMISSIONS.PASSWORD_RESET),
     if (blocked) return;
 
     const hashedPassword = await bcrypt.hash(String(newPassword), 10);
-    await db.query("UPDATE users SET password = ?, password_hash = ?, password_set = 1 WHERE id = ?", [
-      hashedPassword,
+    await db.query("UPDATE users SET password = ?, password_set = 1 WHERE id = ?", [
       hashedPassword,
       userId
     ]);

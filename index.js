@@ -128,15 +128,6 @@ async function ensureSchema() {
   }
 
   try {
-    await db.query("ALTER TABLE users ADD COLUMN full_name VARCHAR(150) DEFAULT NULL");
-    console.log("Added users.full_name column");
-  } catch (error) {
-    if (error.code !== "ER_DUP_FIELDNAME") {
-      console.error("User full_name schema check failed:", error.message);
-    }
-  }
-
-  try {
     await db.query("ALTER TABLE users ADD COLUMN avatar VARCHAR(500) DEFAULT NULL");
     console.log("Added users.avatar column");
   } catch (error) {
@@ -146,19 +137,21 @@ async function ensureSchema() {
   }
 
   try {
-    await db.query("ALTER TABLE users ADD COLUMN password_hash VARCHAR(255) DEFAULT NULL");
-    console.log("Added users.password_hash column");
+    await db.query("ALTER TABLE users DROP COLUMN full_name");
+    console.log("Dropped duplicate users.full_name column");
   } catch (error) {
-    if (error.code !== "ER_DUP_FIELDNAME") {
-      console.error("User password_hash schema check failed:", error.message);
+    if (error.code !== "ER_CANT_DROP_FIELD_OR_KEY") {
+      console.error("User full_name cleanup failed:", error.message);
     }
   }
 
   try {
-    await db.query("UPDATE users SET full_name = fullname WHERE full_name IS NULL");
-    await db.query("UPDATE users SET password_hash = password WHERE password_hash IS NULL");
+    await db.query("ALTER TABLE users DROP COLUMN password_hash");
+    console.log("Dropped duplicate users.password_hash column");
   } catch (error) {
-    console.error("User account compatibility update failed:", error.message);
+    if (error.code !== "ER_CANT_DROP_FIELD_OR_KEY") {
+      console.error("User password_hash cleanup failed:", error.message);
+    }
   }
 
   try {
