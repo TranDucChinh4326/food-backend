@@ -710,6 +710,142 @@ router.delete("/social/unlink/:provider", requireAuth, async (req, res) => {
   }
 });
 
+router.get("/addresses", requireAuth, async (req, res) => {
+  try {
+    const [addresses] = await db.query(
+      `SELECT id, label, receiver_name AS receiverName, phone, address, is_default AS isDefault, created_at AS createdAt
+       FROM user_addresses
+       WHERE user_id = ?
+       ORDER BY is_default DESC, id DESC`,
+      [req.user.id]
+    );
+
+    res.json({ addresses });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Loi server" });
+  }
+});
+
+router.post("/addresses", requireAuth, async (req, res) => {
+  try {
+    const label = String(req.body.label || "Địa chỉ giao hàng").trim();
+    const receiverName = String(req.body.receiverName || "").trim();
+    const phone = String(req.body.phone || "").trim();
+    const address = String(req.body.address || "").trim();
+    const isDefault = Boolean(req.body.isDefault);
+
+    if (!address) {
+      return res.status(400).json({ message: "Vui long nhap dia chi giao hang" });
+    }
+
+    if (isDefault) {
+      await db.query("UPDATE user_addresses SET is_default = 0 WHERE user_id = ?", [req.user.id]);
+    }
+
+    const [existing] = await db.query("SELECT COUNT(*) AS total FROM user_addresses WHERE user_id = ?", [req.user.id]);
+    const shouldDefault = isDefault || Number(existing[0]?.total || 0) === 0;
+
+    const [result] = await db.query(
+      `INSERT INTO user_addresses (user_id, label, receiver_name, phone, address, is_default)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [req.user.id, label || "Địa chỉ giao hàng", receiverName || null, phone || null, address, shouldDefault ? 1 : 0]
+    );
+
+    if (shouldDefault) {
+      await db.query("UPDATE users SET address = ? WHERE id = ?", [address, req.user.id]);
+    }
+
+    res.status(201).json({ message: "Da them dia chi giao hang", id: result.insertId });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Loi server" });
+  }
+});
+
+router.put("/addresses/:id", requireAuth, async (req, res) => {
+  try {
+    const addressId = Number(req.params.id);
+    const label = String(req.body.label || "Địa chỉ giao hàng").trim();
+    const receiverName = String(req.body.receiverName || "").trim();
+    const phone = String(req.body.phone || "").trim();
+    const address = String(req.body.address || "").trim();
+    const isDefault = Boolean(req.body.isDefault);
+
+    if (!Number.isInteger(addressId) || addressId <= 0) {
+      return res.status(400).json({ message: "Ma dia chi khong hop le" });
+    }
+
+    if (!address) {
+      return res.status(400).json({ message: "Vui long nhap dia chi giao hang" });
+    }
+
+    if (isDefault) {
+      await db.query("UPDATE user_addresses SET is_default = 0 WHERE user_id = ?", [req.user.id]);
+    }
+
+    const [result] = await db.query(
+      `UPDATE user_addresses
+       SET label = ?, receiver_name = ?, phone = ?, address = ?, is_default = ?
+       WHERE id = ? AND user_id = ?`,
+      [label || "Địa chỉ giao hàng", receiverName || null, phone || null, address, isDefault ? 1 : 0, addressId, req.user.id]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "Khong tim thay dia chi" });
+    }
+
+    if (isDefault) {
+      await db.query("UPDATE users SET address = ? WHERE id = ?", [address, req.user.id]);
+    }
+
+    res.json({ message: "Da cap nhat dia chi giao hang" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Loi server" });
+  }
+});
+
+router.delete("/addresses/:id", requireAuth, async (req, res) => {
+  try {
+    const addressId = Number(req.params.id);
+
+    if (!Number.isInteger(addressId) || addressId <= 0) {
+      return res.status(400).json({ message: "Ma dia chi khong hop le" });
+    }
+
+    const [addresses] = await db.query(
+      "SELECT id, is_default FROM user_addresses WHERE id = ? AND user_id = ?",
+      [addressId, req.user.id]
+    );
+
+    if (addresses.length === 0) {
+      return res.status(404).json({ message: "Khong tim thay dia chi" });
+    }
+
+    await db.query("DELETE FROM user_addresses WHERE id = ? AND user_id = ?", [addressId, req.user.id]);
+
+    if (addresses[0].is_default) {
+      const [nextAddresses] = await db.query(
+        "SELECT id, address FROM user_addresses WHERE user_id = ? ORDER BY id DESC LIMIT 1",
+        [req.user.id]
+      );
+
+      if (nextAddresses.length) {
+        await db.query("UPDATE user_addresses SET is_default = 1 WHERE id = ?", [nextAddresses[0].id]);
+        await db.query("UPDATE users SET address = ? WHERE id = ?", [nextAddresses[0].address, req.user.id]);
+      } else {
+        await db.query("UPDATE users SET address = NULL WHERE id = ?", [req.user.id]);
+      }
+    }
+
+    res.json({ message: "Da xoa dia chi giao hang" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Loi server" });
+  }
+});
+
 router.get("/me", requireAuth, async (req, res) => {
   try {
     const [users] = await db.query(
