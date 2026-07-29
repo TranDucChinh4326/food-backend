@@ -31,9 +31,13 @@ CREATE TABLE IF NOT EXISTS foods (
 
 CREATE TABLE IF NOT EXISTS users (
   id INT NOT NULL AUTO_INCREMENT,
+  username VARCHAR(80) DEFAULT NULL,
   fullname VARCHAR(150) NOT NULL,
+  full_name VARCHAR(150) DEFAULT NULL,
   email VARCHAR(150) NOT NULL,
+  avatar VARCHAR(500) DEFAULT NULL,
   password VARCHAR(255) NOT NULL,
+  password_hash VARCHAR(255) DEFAULT NULL,
   password_set TINYINT DEFAULT 1,
   role VARCHAR(20) DEFAULT 'USER',
   permissions TEXT DEFAULT NULL,
@@ -44,6 +48,7 @@ CREATE TABLE IF NOT EXISTS users (
   email_verified_at TIMESTAMP NULL DEFAULT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
+  UNIQUE KEY username (username),
   UNIQUE KEY email (email)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -73,6 +78,20 @@ CREATE TABLE IF NOT EXISTS social_accounts (
   UNIQUE KEY user_provider (user_id, provider),
   KEY user_id (user_id),
   CONSTRAINT social_accounts_user_fk FOREIGN KEY (user_id) REFERENCES users (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS user_auth_providers (
+  id INT NOT NULL AUTO_INCREMENT,
+  user_id INT NOT NULL,
+  provider VARCHAR(30) NOT NULL,
+  provider_user_id VARCHAR(150) DEFAULT NULL,
+  provider_email VARCHAR(150) DEFAULT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY provider_identity (provider, provider_user_id),
+  UNIQUE KEY user_provider (user_id, provider),
+  KEY user_id (user_id),
+  CONSTRAINT user_auth_providers_user_fk FOREIGN KEY (user_id) REFERENCES users (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS orders (

@@ -19,8 +19,11 @@ function signToken(user) {
 function publicUser(user) {
   return {
     id: user.id,
+    username: user.username || null,
     fullname: user.fullname,
+    fullName: user.full_name || user.fullname,
     email: user.email,
+    avatar: user.avatar || null,
     role: user.role,
     phone: user.phone || null,
     address: user.address || null,
@@ -42,6 +45,18 @@ function hashToken(token) {
 
 function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
+}
+
+function normalizeUsername(username) {
+  return String(username || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "");
+}
+
+function makeUsernameFromEmail(email) {
+  const base = normalizeUsername(String(email || "").split("@")[0]) || "user";
+  return `${base}_${crypto.randomBytes(3).toString("hex")}`;
 }
 
 function shouldExposeVerificationUrl(emailSent) {
@@ -96,79 +111,101 @@ async function sendVerificationEmail(email, fullname, verificationUrl) {
   return true;
 }
 
-async function findSocialUser(provider, providerId) {
+async function findProviderUser(provider, providerId) {
   const [accounts] = await db.query(
     `SELECT users.*
-     FROM social_accounts
-     JOIN users ON users.id = social_accounts.user_id
-     WHERE social_accounts.provider = ? AND social_accounts.provider_user_id = ?`,
+     FROM user_auth_providers
+     JOIN users ON users.id = user_auth_providers.user_id
+     WHERE user_auth_providers.provider = ? AND user_auth_providers.provider_user_id = ?
+     LIMIT 1`,
     [provider, providerId]
   );
 
   return accounts[0] || null;
 }
 
-async function linkSocialAccount(userId, { fullname, email, provider, providerId }) {
+async function createAuthProvider(userId, { provider, providerId, email }) {
   const normalizedProvider = String(provider || "").trim().toLowerCase();
+  const normalizedProviderId = String(providerId || "").trim();
   const normalizedEmail = normalizeEmail(email);
 
-  const [linkedAccounts] = await db.query(
-    "SELECT user_id FROM social_accounts WHERE provider = ? AND provider_user_id = ?",
-    [normalizedProvider, providerId]
-  );
-
-  if (linkedAccounts.length > 0 && Number(linkedAccounts[0].user_id) !== Number(userId)) {
-    const error = new Error("Tai khoan social nay da lien ket voi tai khoan khac");
+  if (!["local", "google", "facebook"].includes(normalizedProvider)) {
+    const error = new Error("Phuong thuc dang nhap khong hop le");
     error.status = 400;
     throw error;
   }
 
-  if (normalizedProvider === "google" && normalizedEmail) {
-    const [emailUsers] = await db.query(
-      "SELECT id FROM users WHERE email = ? AND id <> ?",
-      [normalizedEmail, userId]
-    );
-
-    if (emailUsers.length > 0) {
-      const error = new Error("Email Google nay da thuoc tai khoan khac");
-      error.status = 400;
-      throw error;
-    }
+  if (normalizedProvider !== "local" && !normalizedProviderId) {
+    const error = new Error("Thieu ma tai khoan nha cung cap");
+    error.status = 400;
+    throw error;
   }
 
   await db.query(
-    `INSERT INTO social_accounts (user_id, provider, provider_user_id, provider_email, provider_name)
-     VALUES (?, ?, ?, ?, ?)
+    `INSERT INTO user_auth_providers (user_id, provider, provider_user_id, provider_email)
+     VALUES (?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
-       user_id = VALUES(user_id),
-       provider_user_id = VALUES(provider_user_id),
-       provider_email = VALUES(provider_email),
-       provider_name = VALUES(provider_name)`,
-    [userId, normalizedProvider, providerId, normalizedEmail || null, fullname || null]
+       provider_email = VALUES(provider_email)`,
+    [userId, normalizedProvider, normalizedProviderId || null, normalizedEmail || null]
   );
-
-  if (normalizedProvider === "google" && normalizedEmail) {
-    await db.query(
-      `UPDATE users
-       SET email = ?,
-           fullname = ?,
-           email_verified = 1,
-           email_verified_at = COALESCE(email_verified_at, NOW())
-       WHERE id = ?`,
-      [normalizedEmail, String(fullname || normalizedEmail).trim(), userId]
-    );
-  } else if (fullname) {
-    await db.query("UPDATE users SET fullname = ? WHERE id = ?", [
-      String(fullname).trim(),
-      userId
-    ]);
-  }
 }
 
-async function getOrCreateSocialUser({ fullname, email, provider, providerId, allowEmailFallback = false }) {
+async function linkSocialAccount(userId, { email, provider, providerId }) {
+  const normalizedProvider = String(provider || "").trim().toLowerCase();
+  const normalizedProviderId = String(providerId || "").trim();
+  const normalizedEmail = normalizeEmail(email);
+
+  if (!["google", "facebook"].includes(normalizedProvider)) {
+    const error = new Error("Nha cung cap social khong hop le");
+    error.status = 400;
+    throw error;
+  }
+
+  const [linkedAccounts] = await db.query(
+    "SELECT user_id FROM user_auth_providers WHERE provider = ? AND provider_user_id = ? LIMIT 1",
+    [normalizedProvider, normalizedProviderId]
+  );
+
+  if (linkedAccounts.length > 0 && Number(linkedAccounts[0].user_id) !== Number(userId)) {
+    const error = new Error("Tai khoan Google/Facebook nay da lien ket voi tai khoan khac");
+    error.status = 400;
+    throw error;
+  }
+
+  await createAuthProvider(userId, {
+    provider: normalizedProvider,
+    providerId: normalizedProviderId,
+    email: normalizedEmail
+  });
+}
+
+async function getLoginProviderCount(userId) {
+  const [rows] = await db.query(
+    "SELECT COUNT(*) AS total FROM user_auth_providers WHERE user_id = ?",
+    [userId]
+  );
+
+  return Number(rows[0]?.total || 0);
+}
+
+async function ensureLocalProvider(userId, email) {
+  await createAuthProvider(userId, {
+    provider: "local",
+    providerId: null,
+    email
+  });
+}
+
+async function getOrCreateSocialUser({ fullname, email, avatar, provider, providerId, allowEmailFallback = false }) {
   const normalizedProvider = String(provider || "social").trim().toLowerCase();
   const normalizedProviderId = String(providerId || "").trim();
   let normalizedEmail = normalizeEmail(email);
+
+  if (!normalizedProviderId) {
+    const error = new Error("Thieu ma tai khoan nha cung cap");
+    error.status = 400;
+    throw error;
+  }
 
   if (!normalizedEmail && allowEmailFallback && normalizedProviderId) {
     normalizedEmail = `${normalizedProvider}_${normalizedProviderId}@foodhub.local`;
@@ -180,58 +217,159 @@ async function getOrCreateSocialUser({ fullname, email, provider, providerId, al
     throw error;
   }
 
-  const linkedUser = await findSocialUser(normalizedProvider, normalizedProviderId);
+  const linkedUser = await findProviderUser(normalizedProvider, normalizedProviderId);
 
   if (linkedUser) {
-    if (normalizedProvider === "google" && normalizedEmail) {
-      await linkSocialAccount(linkedUser.id, {
-        fullname,
-        email: normalizedEmail,
-        provider: normalizedProvider,
-        providerId: normalizedProviderId
-      });
-
-      const [users] = await db.query("SELECT * FROM users WHERE id = ?", [linkedUser.id]);
-      return users[0];
-    }
-
     return linkedUser;
   }
 
   const [users] = await db.query("SELECT * FROM users WHERE email = ?", [normalizedEmail]);
 
   if (users.length > 0) {
-    await linkSocialAccount(users[0].id, {
-      fullname,
-      email: normalizedEmail,
-      provider: normalizedProvider,
-      providerId: normalizedProviderId
-    });
-
-    const [updatedUsers] = await db.query("SELECT * FROM users WHERE id = ?", [users[0].id]);
-    return updatedUsers[0];
+    const error = new Error("Email nay da co tai khoan. Vui long dang nhap bang username/password truoc, sau do vao trang tai khoan de lien ket Google hoac Facebook.");
+    error.status = 409;
+    throw error;
   }
 
   const fallbackPassword = await bcrypt.hash(`${normalizedProvider}:${normalizedProviderId}:${Date.now()}`, 10);
   const isVerifiedSocialEmail = normalizedProvider === "google";
+  const username = makeUsernameFromEmail(normalizedEmail);
   const [result] = await db.query(
-    `INSERT INTO users (fullname, email, password, password_set, email_verified, email_verified_at)
-     VALUES (?, ?, ?, 0, ?, ${isVerifiedSocialEmail ? "NOW()" : "NULL"})`,
+    `INSERT INTO users (username, fullname, full_name, email, avatar, password, password_hash, password_set, email_verified, email_verified_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ${isVerifiedSocialEmail ? "NOW()" : "NULL"})`,
     [
+      username,
+      String(fullname || normalizedEmail).trim(),
       String(fullname || normalizedEmail).trim(),
       normalizedEmail,
+      avatar || null,
+      fallbackPassword,
       fallbackPassword,
       isVerifiedSocialEmail ? 1 : 0
     ]
   );
 
-  const [newUsers] = await db.query("SELECT * FROM users WHERE id = ?", [result.insertId]);
-  await linkSocialAccount(result.insertId, {
-    fullname,
-    email: normalizedEmail,
+  await createAuthProvider(result.insertId, {
     provider: normalizedProvider,
-    providerId: normalizedProviderId
+    providerId: normalizedProviderId,
+    email: normalizedEmail
   });
+
+  const [newUsers] = await db.query("SELECT * FROM users WHERE id = ?", [result.insertId]);
+  return newUsers[0];
+}
+
+async function unlinkSocialAccount(userId, provider) {
+  const normalizedProvider = String(provider || "").trim().toLowerCase();
+
+  if (!["google", "facebook"].includes(normalizedProvider)) {
+    const error = new Error("Nha cung cap social khong hop le");
+    error.status = 400;
+    throw error;
+  }
+
+  const providerCount = await getLoginProviderCount(userId);
+
+  if (providerCount <= 1) {
+    const error = new Error("Khong the huy lien ket vi tai khoan phai con it nhat mot phuong thuc dang nhap khac");
+    error.status = 400;
+    throw error;
+  }
+
+  const [result] = await db.query(
+    "DELETE FROM user_auth_providers WHERE user_id = ? AND provider = ?",
+    [userId, normalizedProvider]
+  );
+
+  if (result.affectedRows === 0) {
+    const error = new Error("Tai khoan chua lien ket phuong thuc nay");
+    error.status = 404;
+    throw error;
+  }
+}
+
+async function listAuthProviders(userId) {
+  const [accounts] = await db.query(
+    `SELECT provider, provider_email, created_at
+     FROM user_auth_providers
+     WHERE user_id = ?
+     ORDER BY FIELD(provider, 'local', 'google', 'facebook'), provider`,
+    [userId]
+  );
+
+  return accounts;
+}
+
+async function getUserByLogin(login) {
+  const normalizedLogin = String(login || "").trim();
+  const normalizedEmail = normalizeEmail(normalizedLogin);
+  const normalizedUsername = normalizeUsername(normalizedLogin);
+
+  const [users] = await db.query(
+    `SELECT *
+     FROM users
+     WHERE email = ? OR username = ?
+     LIMIT 1`,
+    [normalizedEmail, normalizedUsername]
+  );
+
+  return users[0] || null;
+}
+
+async function updatePasswordHash(userId, hashedPassword) {
+  await db.query(
+    "UPDATE users SET password = ?, password_hash = ?, password_set = 1 WHERE id = ?",
+    [hashedPassword, hashedPassword, userId]
+  );
+}
+
+async function createLocalUser({ username, email, password, fullname }) {
+  const normalizedEmail = normalizeEmail(email);
+  const normalizedUsername = username
+    ? normalizeUsername(username)
+    : makeUsernameFromEmail(normalizedEmail);
+
+  if (!normalizedUsername || !normalizedEmail || !password) {
+    const error = new Error("Vui long nhap username, email va mat khau");
+    error.status = 400;
+    throw error;
+  }
+
+  if (!/^[a-z0-9._-]{3,40}$/.test(normalizedUsername)) {
+    const error = new Error("Username chi gom chu thuong, so, dau cham, gach ngang hoac gach duoi va tu 3-40 ky tu");
+    error.status = 400;
+    throw error;
+  }
+
+  if (password.length < 6) {
+    const error = new Error("Mat khau toi thieu 6 ky tu");
+    error.status = 400;
+    throw error;
+  }
+
+  const [oldUsers] = await db.query(
+    "SELECT id FROM users WHERE username = ? OR email = ? LIMIT 1",
+    [normalizedUsername, normalizedEmail]
+  );
+
+  if (oldUsers.length > 0) {
+    const error = new Error("Username hoac email da ton tai");
+    error.status = 400;
+    throw error;
+  }
+
+  const hashedPassword = await bcrypt.hash(password, 10);
+  const displayName = String(fullname || username).trim();
+  const [result] = await db.query(
+    `INSERT INTO users (username, fullname, full_name, email, password, password_hash, password_set, email_verified)
+     VALUES (?, ?, ?, ?, ?, ?, 1, 0)`,
+    [normalizedUsername, displayName, displayName, normalizedEmail, hashedPassword, hashedPassword]
+  );
+
+  await ensureLocalProvider(result.insertId, normalizedEmail);
+
+  const [newUsers] = await db.query("SELECT * FROM users WHERE id = ?", [result.insertId]);
+
   return newUsers[0];
 }
 
@@ -264,6 +402,7 @@ async function getGoogleProfile(accessToken) {
   return {
     fullname: profile.name,
     email: profile.email,
+    avatar: profile.picture || null,
     provider: "google",
     providerId: profile.sub,
     allowEmailFallback: false
@@ -287,6 +426,7 @@ async function getFacebookProfile(accessToken) {
   return {
     fullname: profile.name,
     email: profile.email,
+    avatar: null,
     provider: "facebook",
     providerId: profile.id,
     allowEmailFallback: true
@@ -309,35 +449,18 @@ async function getSocialProfile(provider, accessToken) {
 
 router.post("/register", async (req, res) => {
   try {
-    const { fullname, email, password } = req.body;
-    const normalizedEmail = normalizeEmail(email);
-
-    if (!fullname || !normalizedEmail || !password) {
-      return res.status(400).json({ message: "Vui long nhap day du thong tin" });
-    }
-
-    if (password.length < 6) {
-      return res.status(400).json({ message: "Mat khau toi thieu 6 ky tu" });
-    }
-
-    const [oldUsers] = await db.query("SELECT id FROM users WHERE email = ?", [normalizedEmail]);
-
-    if (oldUsers.length > 0) {
-      return res.status(400).json({ message: "Email da ton tai" });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    const [result] = await db.query(
-      "INSERT INTO users (fullname, email, password, email_verified) VALUES (?, ?, ?, 0)",
-      [fullname.trim(), normalizedEmail, hashedPassword]
-    );
-
-    const verificationUrl = await createEmailVerification(result.insertId);
+    const { username, fullname, email, password } = req.body;
+    const user = await createLocalUser({
+      username,
+      fullname,
+      email,
+      password
+    });
+    const verificationUrl = await createEmailVerification(user.id);
     let emailSent = false;
 
     try {
-      emailSent = await sendVerificationEmail(normalizedEmail, fullname, verificationUrl);
+      emailSent = await sendVerificationEmail(user.email, user.fullname, verificationUrl);
     } catch (mailError) {
       console.error(mailError);
     }
@@ -350,7 +473,7 @@ router.post("/register", async (req, res) => {
     });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(error.status || 500).json({ message: error.message || "Loi server" });
   }
 });
 
@@ -435,30 +558,30 @@ router.post("/resend-verification", async (req, res) => {
 
 router.post("/login", async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { username, email, login, password } = req.body;
+    const loginValue = login || username || email;
 
-    if (!email || !password) {
-      return res.status(400).json({ message: "Vui long nhap email va mat khau" });
+    if (!loginValue || !password) {
+      return res.status(400).json({ message: "Vui long nhap username/email va mat khau" });
     }
 
-    const [users] = await db.query("SELECT * FROM users WHERE email = ?", [
-      email.trim().toLowerCase()
-    ]);
+    const user = await getUserByLogin(loginValue);
 
-    if (users.length === 0) {
-      return res.status(400).json({ message: "Email hoac mat khau khong dung" });
+    if (!user) {
+      return res.status(400).json({ message: "Username/email hoac mat khau khong dung" });
     }
-
-    const user = users[0];
 
     if (!user.is_active) {
       return res.status(403).json({ message: "Tai khoan da bi khoa" });
     }
 
-    const isMatch = await bcrypt.compare(password, user.password);
+    const storedPassword = user.password_hash || user.password;
+    const isMatch = storedPassword
+      ? await bcrypt.compare(password, storedPassword)
+      : false;
 
     if (!isMatch) {
-      return res.status(400).json({ message: "Email hoac mat khau khong dung" });
+      return res.status(400).json({ message: "Username/email hoac mat khau khong dung" });
     }
 
     if (!user.email_verified) {
@@ -524,10 +647,7 @@ router.post("/facebook", async (req, res) => {
 
 router.get("/social/accounts", requireAuth, async (req, res) => {
   try {
-    const [accounts] = await db.query(
-      "SELECT provider, provider_email, provider_name, created_at FROM social_accounts WHERE user_id = ? ORDER BY provider",
-      [req.user.id]
-    );
+    const accounts = await listAuthProviders(req.user.id);
 
     res.json({ accounts });
   } catch (error) {
@@ -548,12 +668,21 @@ router.post("/social/link/:provider", requireAuth, async (req, res) => {
     const profile = await getSocialProfile(provider, accessToken);
     await linkSocialAccount(req.user.id, profile);
 
-    const [accounts] = await db.query(
-      "SELECT provider, provider_email, provider_name, created_at FROM social_accounts WHERE user_id = ? ORDER BY provider",
-      [req.user.id]
-    );
+    const accounts = await listAuthProviders(req.user.id);
 
     res.json({ message: "Lien ket tai khoan thanh cong", accounts });
+  } catch (error) {
+    console.error(error);
+    res.status(error.status || 500).json({ message: error.message || "Loi server" });
+  }
+});
+
+router.delete("/social/unlink/:provider", requireAuth, async (req, res) => {
+  try {
+    await unlinkSocialAccount(req.user.id, req.params.provider);
+    const accounts = await listAuthProviders(req.user.id);
+
+    res.json({ message: "Huy lien ket tai khoan thanh cong", accounts });
   } catch (error) {
     console.error(error);
     res.status(error.status || 500).json({ message: error.message || "Loi server" });
@@ -563,7 +692,7 @@ router.post("/social/link/:provider", requireAuth, async (req, res) => {
 router.get("/me", requireAuth, async (req, res) => {
   try {
     const [users] = await db.query(
-      "SELECT id, fullname, email, phone, address, role, email_verified AS emailVerified, password_set AS passwordSet, created_at FROM users WHERE id = ?",
+      "SELECT id, username, fullname, full_name AS fullName, email, avatar, phone, address, role, email_verified AS emailVerified, password_set AS passwordSet, created_at FROM users WHERE id = ?",
       [req.user.id]
     );
 
@@ -604,17 +733,18 @@ router.put("/me", requireAuth, async (req, res) => {
     await db.query(
       `UPDATE users
        SET fullname = ?,
+           full_name = ?,
            email = ?,
            phone = ?,
            address = ?,
            email_verified = CASE WHEN ? THEN 0 ELSE email_verified END,
            email_verified_at = CASE WHEN ? THEN NULL ELSE email_verified_at END
        WHERE id = ?`,
-      [fullname.trim(), normalizedEmail, normalizedPhone || null, normalizedAddress || null, emailChanged, emailChanged, req.user.id]
+      [fullname.trim(), fullname.trim(), normalizedEmail, normalizedPhone || null, normalizedAddress || null, emailChanged, emailChanged, req.user.id]
     );
 
     const [users] = await db.query(
-      "SELECT id, fullname, email, phone, address, role, email_verified AS emailVerified, password_set AS passwordSet, created_at FROM users WHERE id = ?",
+      "SELECT id, username, fullname, full_name AS fullName, email, avatar, phone, address, role, email_verified AS emailVerified, password_set AS passwordSet, created_at FROM users WHERE id = ?",
       [req.user.id]
     );
 
@@ -678,10 +808,8 @@ router.put("/password", requireAuth, async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-    await db.query("UPDATE users SET password = ?, password_set = 1 WHERE id = ?", [
-      hashedPassword,
-      req.user.id
-    ]);
+    await updatePasswordHash(req.user.id, hashedPassword);
+    await ensureLocalProvider(req.user.id, users[0].email);
 
     res.json({ message: hasPasswordSet ? "Doi mat khau thanh cong" : "Tao mat khau dang nhap thanh cong" });
   } catch (error) {

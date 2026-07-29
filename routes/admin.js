@@ -1,5 +1,6 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
+const crypto = require("crypto");
 const db = require("../db");
 const {
   ADMIN_ROLE,
@@ -27,6 +28,27 @@ function parsePermissions(value) {
 
 function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
+}
+
+function normalizeUsername(username) {
+  return String(username || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "");
+}
+
+function makeUsernameFromEmail(email) {
+  const base = normalizeUsername(String(email || "").split("@")[0]) || "user";
+  return `${base}_${crypto.randomBytes(3).toString("hex")}`;
+}
+
+async function ensureLocalProvider(userId, email) {
+  await db.query(
+    `INSERT INTO user_auth_providers (user_id, provider, provider_user_id, provider_email)
+     VALUES (?, 'local', NULL, ?)
+     ON DUPLICATE KEY UPDATE provider_email = VALUES(provider_email)`,
+    [userId, normalizeEmail(email)]
+  );
 }
 
 function serializePermissions(permissions = []) {
@@ -1122,16 +1144,20 @@ router.post("/users", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISSION
 
     const [result] = await db.query(
       `INSERT INTO users
-       (fullname, email, password, password_set, role, permissions, is_active, email_verified, email_verified_at)
-       VALUES (?, ?, ?, 1, ?, ?, 1, 1, NOW())`,
+       (username, fullname, full_name, email, password, password_hash, password_set, role, permissions, is_active, email_verified, email_verified_at)
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, 1, 1, NOW())`,
       [
+        makeUsernameFromEmail(normalizedEmail),
+        String(fullname).trim(),
         String(fullname).trim(),
         normalizedEmail,
+        hashedPassword,
         hashedPassword,
         normalizedRole,
         savedPermissions
       ]
     );
+    await ensureLocalProvider(result.insertId, normalizedEmail);
 
     res.status(201).json({ message: "Da tao tai khoan", id: result.insertId });
   } catch (error) {
@@ -1167,16 +1193,20 @@ router.post("/staff", requirePermission(PERMISSIONS.STAFF_MANAGE), async (req, r
     const hashedPassword = await bcrypt.hash(password, 10);
     const [result] = await db.query(
       `INSERT INTO users
-       (fullname, email, password, password_set, role, permissions, is_active, email_verified, email_verified_at)
-       VALUES (?, ?, ?, 1, ?, ?, 1, 1, NOW())`,
+       (username, fullname, full_name, email, password, password_hash, password_set, role, permissions, is_active, email_verified, email_verified_at)
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, 1, 1, NOW())`,
       [
+        makeUsernameFromEmail(normalizedEmail),
+        String(fullname).trim(),
         String(fullname).trim(),
         normalizedEmail,
+        hashedPassword,
         hashedPassword,
         normalizedRole,
         canManageRoles(req.user) ? serializePermissions(permissions) : "[]"
       ]
     );
+    await ensureLocalProvider(result.insertId, normalizedEmail);
 
     res.status(201).json({ message: "Da tao tai khoan nhan vien", id: result.insertId });
   } catch (error) {
@@ -1291,7 +1321,7 @@ router.put("/users/:id/password", requirePermission(PERMISSIONS.PASSWORD_RESET),
       return res.status(400).json({ message: "Mat khau moi toi thieu 6 ky tu" });
     }
 
-    const [targetUsers] = await db.query("SELECT id, role FROM users WHERE id = ?", [userId]);
+    const [targetUsers] = await db.query("SELECT id, email, role FROM users WHERE id = ?", [userId]);
 
     if (targetUsers.length === 0) {
       return res.status(404).json({ message: "Khong tim thay tai khoan" });
@@ -1301,10 +1331,12 @@ router.put("/users/:id/password", requirePermission(PERMISSIONS.PASSWORD_RESET),
     if (blocked) return;
 
     const hashedPassword = await bcrypt.hash(String(newPassword), 10);
-    await db.query("UPDATE users SET password = ?, password_set = 1 WHERE id = ?", [
+    await db.query("UPDATE users SET password = ?, password_hash = ?, password_set = 1 WHERE id = ?", [
+      hashedPassword,
       hashedPassword,
       userId
     ]);
+    await ensureLocalProvider(userId, targetUsers[0].email);
 
     res.json({ message: "Da dat lai mat khau moi cho tai khoan" });
   } catch (error) {
