@@ -19,6 +19,7 @@ function signToken(user) {
 function publicUser(user) {
   const username = user.username || null;
   const hasPassword = Boolean(user.password_set ?? true);
+  const isAdmin = String(user.role || "").toUpperCase() === "ADMIN";
 
   return {
     id: user.id,
@@ -31,7 +32,7 @@ function publicUser(user) {
     address: user.address || null,
     emailVerified: Boolean(user.email_verified),
     passwordSet: hasPassword,
-    requiresAccountSetup: !hasPassword || !username
+    requiresAccountSetup: !isAdmin && (!hasPassword || !username)
   };
 }
 
