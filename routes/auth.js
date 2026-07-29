@@ -953,14 +953,22 @@ router.put("/me", requireAuth, async (req, res) => {
 
 router.put("/password", requireAuth, async (req, res) => {
   try {
-    const { currentPassword, newPassword } = req.body;
+    const { currentPassword, newPassword, confirmPassword, captchaAnswer, captchaExpected } = req.body;
 
     if (!newPassword) {
       return res.status(400).json({ message: "Vui long nhap mat khau moi" });
     }
 
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({ message: "Mat khau moi nhap lai khong khop" });
+    }
+
     if (newPassword.length < 6) {
       return res.status(400).json({ message: "Mat khau moi toi thieu 6 ky tu" });
+    }
+
+    if (!captchaAnswer || !captchaExpected || String(captchaAnswer).trim() !== String(captchaExpected).trim()) {
+      return res.status(400).json({ message: "Ma captcha khong dung" });
     }
 
     const [users] = await db.query("SELECT * FROM users WHERE id = ?", [req.user.id]);
