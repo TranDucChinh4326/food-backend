@@ -866,7 +866,9 @@ router.get("/me", requireAuth, async (req, res) => {
 
 router.put("/me", requireAuth, async (req, res) => {
   try {
-    const { username, fullname, email, phone, address, avatar } = req.body;
+    const { username, fullname, email, phone, avatar } = req.body;
+    const hasAddressUpdate = Object.prototype.hasOwnProperty.call(req.body, "address");
+    const address = req.body.address;
     const normalizedUsername = normalizeUsername(username);
     const normalizedEmail = normalizeEmail(email);
     const normalizedPhone = String(phone || "").trim();
@@ -906,18 +908,35 @@ router.put("/me", requireAuth, async (req, res) => {
     const [currentUsers] = await db.query("SELECT email FROM users WHERE id = ?", [req.user.id]);
     const emailChanged = normalizeEmail(currentUsers[0]?.email) !== normalizedEmail;
 
+    const updateFields = [
+      "username = ?",
+      "fullname = ?",
+      "email = ?",
+      "avatar = ?",
+      "phone = ?"
+    ];
+    const updateValues = [
+      normalizedUsername,
+      fullname.trim(),
+      normalizedEmail,
+      normalizedAvatar || null,
+      normalizedPhone || null
+    ];
+
+    if (hasAddressUpdate) {
+      updateFields.push("address = ?");
+      updateValues.push(normalizedAddress || null);
+    }
+
+    updateFields.push(
+      "email_verified = CASE WHEN ? THEN 0 ELSE email_verified END",
+      "email_verified_at = CASE WHEN ? THEN NULL ELSE email_verified_at END"
+    );
+    updateValues.push(emailChanged, emailChanged, req.user.id);
+
     await db.query(
-      `UPDATE users
-       SET username = ?,
-           fullname = ?,
-           email = ?,
-           avatar = ?,
-           phone = ?,
-           address = ?,
-           email_verified = CASE WHEN ? THEN 0 ELSE email_verified END,
-           email_verified_at = CASE WHEN ? THEN NULL ELSE email_verified_at END
-       WHERE id = ?`,
-      [normalizedUsername, fullname.trim(), normalizedEmail, normalizedAvatar || null, normalizedPhone || null, normalizedAddress || null, emailChanged, emailChanged, req.user.id]
+      `UPDATE users SET ${updateFields.join(", ")} WHERE id = ?`,
+      updateValues
     );
 
     const [users] = await db.query(
