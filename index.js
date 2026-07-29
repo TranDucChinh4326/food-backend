@@ -157,11 +157,6 @@ async function ensureSchema() {
   try {
     await db.query("UPDATE users SET full_name = fullname WHERE full_name IS NULL");
     await db.query("UPDATE users SET password_hash = password WHERE password_hash IS NULL");
-    await db.query(`
-      UPDATE users
-      SET username = CONCAT('user_', id)
-      WHERE username IS NULL OR username = ''
-    `);
   } catch (error) {
     console.error("User account compatibility update failed:", error.message);
   }

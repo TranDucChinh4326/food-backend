@@ -6,7 +6,6 @@ ALTER TABLE users ADD UNIQUE KEY username (username);
 
 UPDATE users SET full_name = fullname WHERE full_name IS NULL;
 UPDATE users SET password_hash = password WHERE password_hash IS NULL;
-UPDATE users SET username = CONCAT('user_', id) WHERE username IS NULL OR username = '';
 
 CREATE TABLE IF NOT EXISTS user_auth_providers (
   id INT NOT NULL AUTO_INCREMENT,

@@ -32,7 +32,7 @@ function publicUser(user) {
     address: user.address || null,
     emailVerified: Boolean(user.email_verified),
     passwordSet: hasPassword,
-    requiresAccountSetup: !hasPassword || !username || /^user_\d+$/.test(username)
+    requiresAccountSetup: !hasPassword || !username
   };
 }
 
