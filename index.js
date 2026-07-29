@@ -128,12 +128,18 @@ async function ensureSchema() {
   }
 
   try {
-    await db.query("ALTER TABLE users ADD COLUMN avatar VARCHAR(500) DEFAULT NULL");
+    await db.query("ALTER TABLE users ADD COLUMN avatar LONGTEXT DEFAULT NULL");
     console.log("Added users.avatar column");
   } catch (error) {
     if (error.code !== "ER_DUP_FIELDNAME") {
       console.error("User avatar schema check failed:", error.message);
     }
+  }
+
+  try {
+    await db.query("ALTER TABLE users MODIFY avatar LONGTEXT DEFAULT NULL");
+  } catch (error) {
+    console.error("User avatar type check failed:", error.message);
   }
 
   try {
