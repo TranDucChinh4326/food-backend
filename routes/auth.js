@@ -17,9 +17,12 @@ function signToken(user) {
 }
 
 function publicUser(user) {
+  const username = user.username || null;
+  const hasPassword = Boolean(user.password_set ?? true);
+
   return {
     id: user.id,
-    username: user.username || null,
+    username,
     fullname: user.fullname,
     fullName: user.full_name || user.fullname,
     email: user.email,
@@ -28,7 +31,8 @@ function publicUser(user) {
     phone: user.phone || null,
     address: user.address || null,
     emailVerified: Boolean(user.email_verified),
-    passwordSet: Boolean(user.password_set ?? true)
+    passwordSet: hasPassword,
+    requiresAccountSetup: !hasPassword || !username || /^user_\d+$/.test(username)
   };
 }
 
@@ -233,7 +237,7 @@ async function getOrCreateSocialUser({ fullname, email, avatar, provider, provid
 
   const fallbackPassword = await bcrypt.hash(`${normalizedProvider}:${normalizedProviderId}:${Date.now()}`, 10);
   const isVerifiedSocialEmail = normalizedProvider === "google";
-  const username = makeUsernameFromEmail(normalizedEmail);
+  const username = null;
   const [result] = await db.query(
     `INSERT INTO users (username, fullname, full_name, email, avatar, password, password_hash, password_set, email_verified, email_verified_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ${isVerifiedSocialEmail ? "NOW()" : "NULL"})`,
@@ -375,13 +379,13 @@ async function createLocalUser({ username, email, password, fullname }) {
 
 function sendAuthResponse(res, user) {
   const token = signToken(user);
+  const responseUser = publicUser(user);
 
   res.json({
     message: "Dang nhap thanh cong",
     token,
-    user: {
-      ...publicUser(user)
-    }
+    requiresAccountSetup: responseUser.requiresAccountSetup,
+    user: responseUser
   });
 }
 
@@ -709,13 +713,27 @@ router.get("/me", requireAuth, async (req, res) => {
 
 router.put("/me", requireAuth, async (req, res) => {
   try {
-    const { fullname, email, phone, address } = req.body;
+    const { username, fullname, email, phone, address } = req.body;
+    const normalizedUsername = normalizeUsername(username);
     const normalizedEmail = normalizeEmail(email);
     const normalizedPhone = String(phone || "").trim();
     const normalizedAddress = String(address || "").trim();
 
-    if (!fullname || !normalizedEmail) {
-      return res.status(400).json({ message: "Vui long nhap ho ten va email" });
+    if (!normalizedUsername || !fullname || !normalizedEmail) {
+      return res.status(400).json({ message: "Vui long nhap username, ho ten va email" });
+    }
+
+    if (!/^[a-z0-9._-]{3,40}$/.test(normalizedUsername)) {
+      return res.status(400).json({ message: "Username chi gom chu thuong, so, dau cham, gach ngang hoac gach duoi va tu 3-40 ky tu" });
+    }
+
+    const [oldUsernames] = await db.query(
+      "SELECT id FROM users WHERE username = ? AND id <> ?",
+      [normalizedUsername, req.user.id]
+    );
+
+    if (oldUsernames.length > 0) {
+      return res.status(400).json({ message: "Username da duoc tai khoan khac su dung" });
     }
 
     const [oldUsers] = await db.query(
@@ -732,7 +750,8 @@ router.put("/me", requireAuth, async (req, res) => {
 
     await db.query(
       `UPDATE users
-       SET fullname = ?,
+       SET username = ?,
+           fullname = ?,
            full_name = ?,
            email = ?,
            phone = ?,
@@ -740,7 +759,7 @@ router.put("/me", requireAuth, async (req, res) => {
            email_verified = CASE WHEN ? THEN 0 ELSE email_verified END,
            email_verified_at = CASE WHEN ? THEN NULL ELSE email_verified_at END
        WHERE id = ?`,
-      [fullname.trim(), fullname.trim(), normalizedEmail, normalizedPhone || null, normalizedAddress || null, emailChanged, emailChanged, req.user.id]
+      [normalizedUsername, fullname.trim(), fullname.trim(), normalizedEmail, normalizedPhone || null, normalizedAddress || null, emailChanged, emailChanged, req.user.id]
     );
 
     const [users] = await db.query(
