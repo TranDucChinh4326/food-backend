@@ -1,7 +1,11 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
+const fs = require("fs");
+const path = require("path");
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
+const multer = require("multer");
+const { v2: cloudinary } = require("cloudinary");
 const db = require("../db");
 const { requireAuth } = require("../middleware/auth");
 
@@ -11,6 +15,35 @@ const passwordCaptchaStore = new Map();
 const passwordCaptchaCooldownStore = new Map();
 const PASSWORD_CAPTCHA_TTL_MS = 5 * 60 * 1000;
 const PASSWORD_CAPTCHA_COOLDOWN_MS = 60 * 1000;
+const AVATAR_UPLOAD_DIR = path.join(__dirname, "..", "uploads", "avatars");
+const avatarUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 1.5 * 1024 * 1024
+  },
+  fileFilter(req, file, callback) {
+    if (!file.mimetype || !file.mimetype.startsWith("image/")) {
+      callback(new Error("Vui long chon tep hinh anh"));
+      return;
+    }
+
+    callback(null, true);
+  }
+});
+
+const hasCloudinaryConfig = Boolean(
+  process.env.CLOUDINARY_CLOUD_NAME
+    && process.env.CLOUDINARY_API_KEY
+    && process.env.CLOUDINARY_API_SECRET
+);
+
+if (hasCloudinaryConfig) {
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET
+  });
+}
 
 function signToken(user) {
   return jwt.sign(
@@ -38,6 +71,52 @@ function publicUser(user) {
     passwordSet: hasPassword,
     requiresAccountSetup: !isAdmin && (!hasPassword || !username)
   };
+}
+
+function getApiBaseUrl(req) {
+  return (process.env.API_PUBLIC_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
+}
+
+function getAvatarExtension(mimetype) {
+  const extension = String(mimetype || "").split("/")[1] || "jpg";
+  return extension === "jpeg" ? "jpg" : extension.replace(/[^a-z0-9]/gi, "") || "jpg";
+}
+
+async function saveAvatarFile(req, file) {
+  if (hasCloudinaryConfig) {
+    const uploadResult = await new Promise((resolve, reject) => {
+      const stream = cloudinary.uploader.upload_stream(
+        {
+          folder: process.env.CLOUDINARY_AVATAR_FOLDER || "foodhub/avatars",
+          resource_type: "image",
+          transformation: [
+            { width: 320, height: 320, crop: "fill", gravity: "face" },
+            { quality: "auto", fetch_format: "auto" }
+          ]
+        },
+        (error, result) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+
+          resolve(result);
+        }
+      );
+
+      stream.end(file.buffer);
+    });
+
+    return uploadResult.secure_url;
+  }
+
+  await fs.promises.mkdir(AVATAR_UPLOAD_DIR, { recursive: true });
+  const filename = `${req.user.id}-${Date.now()}-${crypto.randomBytes(6).toString("hex")}.${getAvatarExtension(file.mimetype)}`;
+  const filepath = path.join(AVATAR_UPLOAD_DIR, filename);
+
+  await fs.promises.writeFile(filepath, file.buffer);
+
+  return `${getApiBaseUrl(req)}/uploads/avatars/${filename}`;
 }
 
 function getFrontendUrl() {
@@ -891,14 +970,13 @@ router.get("/me", requireAuth, async (req, res) => {
 
 router.put("/me", requireAuth, async (req, res) => {
   try {
-    const { username, fullname, email, phone, avatar } = req.body;
+    const { username, fullname, email, phone } = req.body;
     const hasAddressUpdate = Object.prototype.hasOwnProperty.call(req.body, "address");
     const address = req.body.address;
     const normalizedUsername = normalizeUsername(username);
     const normalizedEmail = normalizeEmail(email);
     const normalizedPhone = String(phone || "").trim();
     const normalizedAddress = String(address || "").trim();
-    const normalizedAvatar = String(avatar || "").trim();
 
     if (!normalizedUsername || !fullname || !normalizedEmail) {
       return res.status(400).json({ message: "Vui long nhap username, ho ten va email" });
@@ -906,10 +984,6 @@ router.put("/me", requireAuth, async (req, res) => {
 
     if (!/^[a-z0-9._-]{3,40}$/.test(normalizedUsername)) {
       return res.status(400).json({ message: "Username chi gom chu thuong, so, dau cham, gach ngang hoac gach duoi va tu 3-40 ky tu" });
-    }
-
-    if (normalizedAvatar && normalizedAvatar.length > 500000) {
-      return res.status(413).json({ message: "Anh dai dien qua lon. Vui long chon anh nho hon." });
     }
 
     const [oldUsernames] = await db.query(
@@ -937,14 +1011,12 @@ router.put("/me", requireAuth, async (req, res) => {
       "username = ?",
       "fullname = ?",
       "email = ?",
-      "avatar = ?",
       "phone = ?"
     ];
     const updateValues = [
       normalizedUsername,
       fullname.trim(),
       normalizedEmail,
-      normalizedAvatar || null,
       normalizedPhone || null
     ];
 
@@ -993,6 +1065,42 @@ router.put("/me", requireAuth, async (req, res) => {
     console.error(error);
     res.status(500).json({ message: "Loi server" });
   }
+});
+
+router.post("/avatar", requireAuth, (req, res) => {
+  avatarUpload.single("avatar")(req, res, async error => {
+    if (error) {
+      const isSizeError = error.code === "LIMIT_FILE_SIZE";
+      return res.status(isSizeError ? 413 : 400).json({
+        message: isSizeError
+          ? "Anh dai dien qua lon. Vui long chon anh nho hon 1.5MB."
+          : error.message || "Khong the tai anh dai dien"
+      });
+    }
+
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: "Vui long chon anh dai dien" });
+      }
+
+      const avatarUrl = await saveAvatarFile(req, req.file);
+      await db.query("UPDATE users SET avatar = ? WHERE id = ?", [avatarUrl, req.user.id]);
+
+      const [users] = await db.query(
+        "SELECT id, username, fullname, email, avatar, phone, address, role, email_verified AS emailVerified, password_set AS passwordSet, created_at FROM users WHERE id = ?",
+        [req.user.id]
+      );
+
+      return res.json({
+        message: "Cap nhat anh dai dien thanh cong",
+        avatar: avatarUrl,
+        user: users[0]
+      });
+    } catch (uploadError) {
+      console.error(uploadError);
+      return res.status(500).json({ message: "Khong the luu anh dai dien" });
+    }
+  });
 });
 
 router.get("/password-captcha", requireAuth, async (req, res) => {
