@@ -1042,19 +1042,6 @@ router.put("/password", requireAuth, async (req, res) => {
       return res.status(400).json({ message: "Mat khau moi toi thieu 6 ky tu" });
     }
 
-    cleanupPasswordCaptchas();
-    const captcha = passwordCaptchaStore.get(String(captchaId || ""));
-    passwordCaptchaStore.delete(String(captchaId || ""));
-
-    if (
-      !captcha
-      || captcha.userId !== req.user.id
-      || !captchaAnswer
-      || String(captchaAnswer).trim().toLowerCase() !== captcha.code
-    ) {
-      return res.status(400).json({ message: "Ma captcha khong dung" });
-    }
-
     const [users] = await db.query("SELECT * FROM users WHERE id = ?", [req.user.id]);
 
     if (users.length === 0) {
@@ -1074,6 +1061,22 @@ router.put("/password", requireAuth, async (req, res) => {
     if (!isMatch) {
       return res.status(400).json({ message: "Mat khau hien tai khong dung" });
     }
+
+    cleanupPasswordCaptchas();
+    const normalizedCaptchaId = String(captchaId || "");
+    const captcha = passwordCaptchaStore.get(normalizedCaptchaId);
+
+    if (
+      !captcha
+      || captcha.userId !== req.user.id
+      || !captchaAnswer
+      || String(captchaAnswer).trim().toLowerCase() !== captcha.code
+    ) {
+      passwordCaptchaStore.delete(normalizedCaptchaId);
+      return res.status(400).json({ message: "Ma captcha khong dung" });
+    }
+
+    passwordCaptchaStore.delete(normalizedCaptchaId);
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
 
