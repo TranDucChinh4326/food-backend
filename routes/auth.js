@@ -7,6 +7,10 @@ const { requireAuth } = require("../middleware/auth");
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "foodhub_dev_secret_change_me";
+const passwordCaptchaStore = new Map();
+const passwordCaptchaCooldownStore = new Map();
+const PASSWORD_CAPTCHA_TTL_MS = 5 * 60 * 1000;
+const PASSWORD_CAPTCHA_COOLDOWN_MS = 60 * 1000;
 
 function signToken(user) {
   return jwt.sign(
@@ -60,6 +64,27 @@ function normalizeUsername(username) {
 
 function shouldExposeVerificationUrl(emailSent) {
   return !emailSent || process.env.EMAIL_DEBUG_LINK === "true";
+}
+
+function createPasswordCaptchaCode() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  return Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+}
+
+function cleanupPasswordCaptchas() {
+  const now = Date.now();
+
+  for (const [id, captcha] of passwordCaptchaStore.entries()) {
+    if (captcha.expiresAt <= now) {
+      passwordCaptchaStore.delete(id);
+    }
+  }
+
+  for (const [userId, availableAt] of passwordCaptchaCooldownStore.entries()) {
+    if (availableAt <= now) {
+      passwordCaptchaCooldownStore.delete(userId);
+    }
+  }
 }
 
 async function createEmailVerification(userId) {
@@ -970,9 +995,40 @@ router.put("/me", requireAuth, async (req, res) => {
   }
 });
 
+router.get("/password-captcha", requireAuth, async (req, res) => {
+  cleanupPasswordCaptchas();
+
+  const nextAvailableAt = passwordCaptchaCooldownStore.get(req.user.id) || 0;
+  const waitMs = nextAvailableAt - Date.now();
+
+  if (waitMs > 0) {
+    return res.status(429).json({
+      message: `Vui long doi ${Math.ceil(waitMs / 1000)} giay de xin ma moi`,
+      retryAfterSeconds: Math.ceil(waitMs / 1000)
+    });
+  }
+
+  const id = crypto.randomBytes(16).toString("hex");
+  const code = createPasswordCaptchaCode();
+
+  passwordCaptchaStore.set(id, {
+    userId: req.user.id,
+    code: code.toLowerCase(),
+    expiresAt: Date.now() + PASSWORD_CAPTCHA_TTL_MS
+  });
+  passwordCaptchaCooldownStore.set(req.user.id, Date.now() + PASSWORD_CAPTCHA_COOLDOWN_MS);
+
+  res.json({
+    id,
+    code,
+    expiresInSeconds: PASSWORD_CAPTCHA_TTL_MS / 1000,
+    cooldownSeconds: PASSWORD_CAPTCHA_COOLDOWN_MS / 1000
+  });
+});
+
 router.put("/password", requireAuth, async (req, res) => {
   try {
-    const { currentPassword, newPassword, confirmPassword, captchaAnswer, captchaExpected } = req.body;
+    const { currentPassword, newPassword, confirmPassword, captchaAnswer, captchaId } = req.body;
 
     if (!newPassword) {
       return res.status(400).json({ message: "Vui long nhap mat khau moi" });
@@ -986,10 +1042,15 @@ router.put("/password", requireAuth, async (req, res) => {
       return res.status(400).json({ message: "Mat khau moi toi thieu 6 ky tu" });
     }
 
+    cleanupPasswordCaptchas();
+    const captcha = passwordCaptchaStore.get(String(captchaId || ""));
+    passwordCaptchaStore.delete(String(captchaId || ""));
+
     if (
-      !captchaAnswer
-      || !captchaExpected
-      || String(captchaAnswer).trim().toLowerCase() !== String(captchaExpected).trim().toLowerCase()
+      !captcha
+      || captcha.userId !== req.user.id
+      || !captchaAnswer
+      || String(captchaAnswer).trim().toLowerCase() !== captcha.code
     ) {
       return res.status(400).json({ message: "Ma captcha khong dung" });
     }
