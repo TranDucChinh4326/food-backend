@@ -1042,13 +1042,16 @@ router.put("/password", requireAuth, async (req, res) => {
       return res.status(400).json({ message: "Mat khau moi toi thieu 6 ky tu" });
     }
 
-    const [users] = await db.query("SELECT * FROM users WHERE id = ?", [req.user.id]);
+    const [users] = await db.query(
+      "SELECT id, email, password, password_set FROM users WHERE id = ? LIMIT 1",
+      [req.user.id]
+    );
 
     if (users.length === 0) {
       return res.status(404).json({ message: "Khong tim thay nguoi dung" });
     }
 
-    const hasPasswordSet = Boolean(users[0].password_set ?? true);
+    const hasPasswordSet = Boolean(users[0].password_set) && Boolean(users[0].password);
 
     if (hasPasswordSet && !currentPassword) {
       return res.status(400).json({ message: "Vui long nhap mat khau hien tai" });
