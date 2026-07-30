@@ -986,7 +986,11 @@ router.put("/password", requireAuth, async (req, res) => {
       return res.status(400).json({ message: "Mat khau moi toi thieu 6 ky tu" });
     }
 
-    if (!captchaAnswer || !captchaExpected || String(captchaAnswer).trim() !== String(captchaExpected).trim()) {
+    if (
+      !captchaAnswer
+      || !captchaExpected
+      || String(captchaAnswer).trim().toLowerCase() !== String(captchaExpected).trim().toLowerCase()
+    ) {
       return res.status(400).json({ message: "Ma captcha khong dung" });
     }
 
