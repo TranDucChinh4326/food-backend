@@ -970,13 +970,14 @@ router.get("/me", requireAuth, async (req, res) => {
 
 router.put("/me", requireAuth, async (req, res) => {
   try {
-    const { username, fullname, email, phone } = req.body;
+    const { username, fullname, email, phone, avatar } = req.body;
     const hasAddressUpdate = Object.prototype.hasOwnProperty.call(req.body, "address");
     const address = req.body.address;
     const normalizedUsername = normalizeUsername(username);
     const normalizedEmail = normalizeEmail(email);
     const normalizedPhone = String(phone || "").trim();
     const normalizedAddress = String(address || "").trim();
+    const normalizedAvatar = String(avatar || "").trim();
 
     if (!normalizedUsername || !fullname || !normalizedEmail) {
       return res.status(400).json({ message: "Vui long nhap username, ho ten va email" });
@@ -984,6 +985,14 @@ router.put("/me", requireAuth, async (req, res) => {
 
     if (!/^[a-z0-9._-]{3,40}$/.test(normalizedUsername)) {
       return res.status(400).json({ message: "Username chi gom chu thuong, so, dau cham, gach ngang hoac gach duoi va tu 3-40 ky tu" });
+    }
+
+    if (normalizedAvatar && !/^https?:\/\//i.test(normalizedAvatar) && !/^data:image\/(png|jpe?g|webp);base64,/i.test(normalizedAvatar)) {
+      return res.status(400).json({ message: "Anh dai dien khong hop le" });
+    }
+
+    if (normalizedAvatar.length > 500000) {
+      return res.status(413).json({ message: "Anh dai dien qua lon. Vui long chon anh nho hon." });
     }
 
     const [oldUsernames] = await db.query(
@@ -1011,12 +1020,14 @@ router.put("/me", requireAuth, async (req, res) => {
       "username = ?",
       "fullname = ?",
       "email = ?",
+      "avatar = ?",
       "phone = ?"
     ];
     const updateValues = [
       normalizedUsername,
       fullname.trim(),
       normalizedEmail,
+      normalizedAvatar || null,
       normalizedPhone || null
     ];
 

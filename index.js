@@ -2,7 +2,6 @@ require("dotenv").config();
 
 const express = require("express");
 const cors = require("cors");
-const path = require("path");
 const db = require("./db");
 
 const app = express();
@@ -45,7 +44,6 @@ app.use(cors({
 }));
 app.use(express.json({ limit: "8mb" }));
 app.use(express.urlencoded({ extended: true, limit: "8mb" }));
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 app.use((error, req, res, next) => {
   if (error?.type === "entity.too.large") {
@@ -131,7 +129,7 @@ async function ensureSchema() {
   }
 
   try {
-    await db.query("ALTER TABLE users ADD COLUMN avatar VARCHAR(500) DEFAULT NULL");
+    await db.query("ALTER TABLE users ADD COLUMN avatar LONGTEXT DEFAULT NULL");
     console.log("Added users.avatar column");
   } catch (error) {
     if (error.code !== "ER_DUP_FIELDNAME") {
@@ -140,8 +138,7 @@ async function ensureSchema() {
   }
 
   try {
-    await db.query("UPDATE users SET avatar = NULL WHERE avatar LIKE 'data:image/%'");
-    await db.query("ALTER TABLE users MODIFY avatar VARCHAR(500) DEFAULT NULL");
+    await db.query("ALTER TABLE users MODIFY avatar LONGTEXT DEFAULT NULL");
   } catch (error) {
     console.error("User avatar type check failed:", error.message);
   }

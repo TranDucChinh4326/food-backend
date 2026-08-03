@@ -1,0 +1,4 @@
+USE foodhub_db;
+
+ALTER TABLE users
+MODIFY avatar LONGTEXT DEFAULT NULL;
