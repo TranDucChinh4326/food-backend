@@ -257,8 +257,11 @@ router.post("/", requireAuth, async (req, res) => {
   } catch (error) {
     await connection.rollback();
     console.error(error);
-    res.status(error.message === "Inventory update failed" ? 400 : 500).json({
-      message: error.message === "Inventory update failed" ? "Mot so mon an khong du so luong ton kho" : "Loi server"
+    const status = error.status || (error.message === "Inventory update failed" ? 400 : 500);
+    res.status(status).json({
+      message: error.message === "Inventory update failed"
+        ? "Mot so mon an khong du so luong ton kho"
+        : error.message || "Loi server"
     });
   } finally {
     connection.release();
