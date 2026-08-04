@@ -709,7 +709,7 @@ router.get("/stats", requireAnyPermission([PERMISSIONS.STATS_VIEW, PERMISSIONS.O
 router.get("/orders", requirePermission(PERMISSIONS.ORDERS_MANAGE), async (req, res) => {
   try {
     const [orders] = await db.query(
-      `SELECT id, customer_name, phone, address, note, total_price, status, created_at
+      `SELECT id, customer_name, phone, address, note, total_price, payment_method, payment_status, status, created_at
        FROM orders
        ORDER BY created_at DESC`
     );
@@ -751,7 +751,7 @@ router.patch("/orders/:id/status", requirePermission(PERMISSIONS.ORDERS_MANAGE),
   try {
     const orderId = Number(req.params.id);
     const { status } = req.body;
-    const allowedStatuses = ["pending", "confirmed", "delivering", "done", "cancelled"];
+    const allowedStatuses = ["pending_payment", "pending", "confirmed", "delivering", "done", "cancelled"];
 
     if (!Number.isInteger(orderId) || orderId <= 0) {
       return res.status(400).json({ message: "Ma don hang khong hop le" });
@@ -771,6 +771,43 @@ router.patch("/orders/:id/status", requirePermission(PERMISSIONS.ORDERS_MANAGE),
     }
 
     res.json({ message: "Cap nhat trang thai thanh cong" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Loi server" });
+  }
+});
+
+router.patch("/orders/:id/payment", requirePermission(PERMISSIONS.ORDERS_MANAGE), async (req, res) => {
+  try {
+    const orderId = Number(req.params.id);
+    const { paymentStatus } = req.body;
+    const allowedStatuses = ["unpaid", "pending", "paid", "failed", "cancelled", "expired", "refunded"];
+
+    if (!Number.isInteger(orderId) || orderId <= 0) {
+      return res.status(400).json({ message: "Ma don hang khong hop le" });
+    }
+
+    if (!allowedStatuses.includes(paymentStatus)) {
+      return res.status(400).json({ message: "Trang thai thanh toan khong hop le" });
+    }
+
+    const nextOrderStatus = paymentStatus === "paid" ? "pending" : undefined;
+    const [result] = await db.query(
+      nextOrderStatus
+        ? "UPDATE orders SET payment_status = ?, status = ? WHERE id = ?"
+        : "UPDATE orders SET payment_status = ? WHERE id = ?",
+      nextOrderStatus ? [paymentStatus, nextOrderStatus, orderId] : [paymentStatus, orderId]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "Khong tim thay don hang" });
+    }
+
+    if (paymentStatus === "paid") {
+      await db.query("UPDATE payment_sessions SET status = 'paid', paid_at = NOW() WHERE order_id = ?", [orderId]);
+    }
+
+    res.json({ message: "Cap nhat thanh toan thanh cong" });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Loi server" });

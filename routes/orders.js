@@ -3,9 +3,44 @@ const db = require("../db");
 const { requireAuth } = require("../middleware/auth");
 
 const router = express.Router();
+const QR_PAYMENT_TTL_MINUTES = Number(process.env.QR_PAYMENT_TTL_MINUTES || 10);
 
 function isPositiveInteger(value) {
   return Number.isInteger(Number(value)) && Number(value) > 0;
+}
+
+function getBankConfig() {
+  return {
+    bankCode: process.env.BANK_CODE || "",
+    accountNo: process.env.BANK_ACCOUNT_NO || "",
+    accountName: process.env.BANK_ACCOUNT_NAME || ""
+  };
+}
+
+function ensureQrBankConfig() {
+  const config = getBankConfig();
+
+  if (!config.bankCode || !config.accountNo || !config.accountName) {
+    const error = new Error("Chua cau hinh thong tin ngan hang nhan thanh toan QR");
+    error.status = 500;
+    throw error;
+  }
+
+  return config;
+}
+
+function buildTransferContent(orderId) {
+  return `FOODHUB DH${orderId}`;
+}
+
+function buildVietQrUrl({ bankCode, accountNo, accountName, amount, transferContent }) {
+  const query = new URLSearchParams({
+    amount: String(amount),
+    addInfo: transferContent,
+    accountName
+  });
+
+  return `https://img.vietqr.io/image/${encodeURIComponent(bankCode)}-${encodeURIComponent(accountNo)}-compact2.png?${query.toString()}`;
 }
 
 async function getItemsByOrderIds(orderIds) {
@@ -55,6 +90,8 @@ router.post("/", requireAuth, async (req, res) => {
     if (normalizedPaymentMethod === "wallet") {
       return res.status(400).json({ message: "Thanh toan bang so du tai khoan chua duoc kich hoat. Vui long chon COD hoac QR." });
     }
+
+    const bankConfig = normalizedPaymentMethod === "qr" ? ensureQrBankConfig() : null;
 
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ message: "Gio hang dang trong" });
@@ -113,13 +150,14 @@ router.post("/", requireAuth, async (req, res) => {
     });
     const totalPrice = orderItems.reduce((sum, item) => sum + item.subtotal, 0);
     const paymentStatus = normalizedPaymentMethod === "qr" ? "pending" : "unpaid";
+    const orderStatus = normalizedPaymentMethod === "qr" ? "pending_payment" : "pending";
 
     await connection.beginTransaction();
 
     const [orderResult] = await connection.query(
       `INSERT INTO orders
         (user_id, customer_name, phone, address, note, total_price, payment_method, payment_status, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         req.user.id,
         customerName.trim(),
@@ -128,11 +166,13 @@ router.post("/", requireAuth, async (req, res) => {
         customerNote.trim(),
         totalPrice,
         normalizedPaymentMethod,
-        paymentStatus
+        paymentStatus,
+        orderStatus
       ]
     );
 
     const orderId = orderResult.insertId;
+    let paymentSession = null;
     const detailValues = orderItems.map(item => [
       orderId,
       item.foodId,
@@ -162,17 +202,56 @@ router.post("/", requireAuth, async (req, res) => {
       }
     }
 
+    if (normalizedPaymentMethod === "qr") {
+      const transferContent = buildTransferContent(orderId);
+      const qrUrl = buildVietQrUrl({
+        ...bankConfig,
+        amount: totalPrice,
+        transferContent
+      });
+      const [sessionResult] = await connection.query(
+        `INSERT INTO payment_sessions
+          (order_id, user_id, method, amount, bank_code, bank_account_no, bank_account_name, transfer_content, qr_url, status, expires_at)
+         VALUES (?, ?, 'qr', ?, ?, ?, ?, ?, ?, 'pending', DATE_ADD(NOW(), INTERVAL ? MINUTE))`,
+        [
+          orderId,
+          req.user.id,
+          totalPrice,
+          bankConfig.bankCode,
+          bankConfig.accountNo,
+          bankConfig.accountName,
+          transferContent,
+          qrUrl,
+          QR_PAYMENT_TTL_MINUTES
+        ]
+      );
+
+      paymentSession = {
+        id: sessionResult.insertId,
+        method: "qr",
+        amount: totalPrice,
+        bankCode: bankConfig.bankCode,
+        bankAccountNo: bankConfig.accountNo,
+        bankAccountName: bankConfig.accountName,
+        transferContent,
+        qrUrl,
+        status: "pending",
+        expiresInSeconds: QR_PAYMENT_TTL_MINUTES * 60
+      };
+    }
+
     await connection.commit();
 
     res.status(201).json({
-      message: "Dat hang thanh cong",
+      message: normalizedPaymentMethod === "qr" ? "Da tao giao dich thanh toan QR" : "Dat hang thanh cong",
       order: {
         id: orderId,
-        status: "pending",
+        status: orderStatus,
         paymentMethod: normalizedPaymentMethod,
         paymentStatus,
         totalPrice,
-        items: orderItems
+        items: orderItems,
+        paymentSession
       }
     });
   } catch (error) {
@@ -181,6 +260,76 @@ router.post("/", requireAuth, async (req, res) => {
     res.status(error.message === "Inventory update failed" ? 400 : 500).json({
       message: error.message === "Inventory update failed" ? "Mot so mon an khong du so luong ton kho" : "Loi server"
     });
+  } finally {
+    connection.release();
+  }
+});
+
+router.post("/:id/payment/cancel", requireAuth, async (req, res) => {
+  const connection = await db.getConnection();
+
+  try {
+    const orderId = Number(req.params.id);
+
+    if (!isPositiveInteger(orderId)) {
+      return res.status(400).json({ message: "Ma don hang khong hop le" });
+    }
+
+    await connection.beginTransaction();
+
+    const [orders] = await connection.query(
+      `SELECT id, status, payment_status
+       FROM orders
+       WHERE id = ? AND user_id = ? AND payment_method = 'qr'
+       LIMIT 1
+       FOR UPDATE`,
+      [orderId, req.user.id]
+    );
+
+    if (orders.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ message: "Khong tim thay giao dich QR" });
+    }
+
+    const order = orders[0];
+
+    if (order.payment_status === "paid") {
+      await connection.rollback();
+      return res.status(400).json({ message: "Don hang da thanh toan, khong the huy" });
+    }
+
+    if (order.status === "cancelled") {
+      await connection.rollback();
+      return res.json({ message: "Giao dich da duoc huy truoc do" });
+    }
+
+    const [items] = await connection.query(
+      "SELECT food_id, quantity FROM order_details WHERE order_id = ?",
+      [orderId]
+    );
+
+    for (const item of items) {
+      await connection.query(
+        "UPDATE foods SET stock_quantity = stock_quantity + ? WHERE id = ?",
+        [item.quantity, item.food_id]
+      );
+    }
+
+    await connection.query(
+      "UPDATE orders SET status = 'cancelled', payment_status = 'cancelled' WHERE id = ?",
+      [orderId]
+    );
+    await connection.query(
+      "UPDATE payment_sessions SET status = 'cancelled', cancelled_at = NOW() WHERE order_id = ? AND status = 'pending'",
+      [orderId]
+    );
+
+    await connection.commit();
+    res.json({ message: "Da huy giao dich thanh toan QR" });
+  } catch (error) {
+    await connection.rollback();
+    console.error(error);
+    res.status(500).json({ message: "Loi server" });
   } finally {
     connection.release();
   }

@@ -70,7 +70,7 @@ function getToken(req) {
   const header = req.headers.authorization || "";
 
   if (!header.startsWith("Bearer ")) {
-    return null;
+    return req.query?.token ? String(req.query.token) : null;
   }
 
   return header.slice("Bearer ".length);
