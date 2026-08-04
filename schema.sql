@@ -116,6 +116,8 @@ CREATE TABLE IF NOT EXISTS orders (
   address VARCHAR(255) NOT NULL,
   note TEXT DEFAULT NULL,
   total_price INT NOT NULL,
+  payment_method VARCHAR(30) NOT NULL DEFAULT 'cod',
+  payment_status VARCHAR(30) NOT NULL DEFAULT 'unpaid',
   status VARCHAR(50) DEFAULT 'pending',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),

@@ -248,6 +248,22 @@ async function ensureSchema() {
   }
 
   try {
+    await db.query("ALTER TABLE orders ADD COLUMN payment_method VARCHAR(30) NOT NULL DEFAULT 'cod'");
+  } catch (error) {
+    if (error.code !== "ER_DUP_FIELDNAME") {
+      console.error("Order payment method schema check failed:", error.message);
+    }
+  }
+
+  try {
+    await db.query("ALTER TABLE orders ADD COLUMN payment_status VARCHAR(30) NOT NULL DEFAULT 'unpaid'");
+  } catch (error) {
+    if (error.code !== "ER_DUP_FIELDNAME") {
+      console.error("Order payment status schema check failed:", error.message);
+    }
+  }
+
+  try {
     await db.query(`
       CREATE TABLE IF NOT EXISTS advertisements (
         id INT NOT NULL AUTO_INCREMENT,

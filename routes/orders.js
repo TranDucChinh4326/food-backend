@@ -39,11 +39,21 @@ router.post("/", requireAuth, async (req, res) => {
       customerPhone,
       customerAddress,
       customerNote = "",
+      paymentMethod = "cod",
       items
     } = req.body;
+    const normalizedPaymentMethod = String(paymentMethod || "cod").toLowerCase();
 
     if (!customerName || !customerPhone || !customerAddress) {
       return res.status(400).json({ message: "Vui long nhap thong tin giao hang" });
+    }
+
+    if (!["cod", "qr", "wallet"].includes(normalizedPaymentMethod)) {
+      return res.status(400).json({ message: "Phuong thuc thanh toan khong hop le" });
+    }
+
+    if (normalizedPaymentMethod === "wallet") {
+      return res.status(400).json({ message: "Thanh toan bang so du tai khoan chua duoc kich hoat. Vui long chon COD hoac QR." });
     }
 
     if (!Array.isArray(items) || items.length === 0) {
@@ -102,20 +112,23 @@ router.post("/", requireAuth, async (req, res) => {
       };
     });
     const totalPrice = orderItems.reduce((sum, item) => sum + item.subtotal, 0);
+    const paymentStatus = normalizedPaymentMethod === "qr" ? "pending" : "unpaid";
 
     await connection.beginTransaction();
 
     const [orderResult] = await connection.query(
       `INSERT INTO orders
-        (user_id, customer_name, phone, address, note, total_price, status)
-       VALUES (?, ?, ?, ?, ?, ?, 'pending')`,
+        (user_id, customer_name, phone, address, note, total_price, payment_method, payment_status, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
       [
         req.user.id,
         customerName.trim(),
         customerPhone.trim(),
         customerAddress.trim(),
         customerNote.trim(),
-        totalPrice
+        totalPrice,
+        normalizedPaymentMethod,
+        paymentStatus
       ]
     );
 
@@ -156,6 +169,8 @@ router.post("/", requireAuth, async (req, res) => {
       order: {
         id: orderId,
         status: "pending",
+        paymentMethod: normalizedPaymentMethod,
+        paymentStatus,
         totalPrice,
         items: orderItems
       }
@@ -198,7 +213,7 @@ router.get("/", requireAuth, async (req, res) => {
     }
 
     const [orders] = await db.query(
-      `SELECT id, customer_name, phone, address, note, total_price, status, created_at
+      `SELECT id, customer_name, phone, address, note, total_price, payment_method, payment_status, status, created_at
        FROM orders
        WHERE ${conditions.join(" AND ")}
        ORDER BY created_at DESC, id DESC`,
@@ -226,7 +241,7 @@ router.get("/:id", requireAuth, async (req, res) => {
     }
 
     const [orders] = await db.query(
-      `SELECT id, customer_name, phone, address, note, total_price, status, created_at
+      `SELECT id, customer_name, phone, address, note, total_price, payment_method, payment_status, status, created_at
        FROM orders
        WHERE id = ? AND user_id = ?`,
       [orderId, req.user.id]
