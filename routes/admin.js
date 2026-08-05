@@ -250,6 +250,7 @@ router.get("/permissions", requirePermission(PERMISSIONS.ROLES_MANAGE), (req, re
       { value: PERMISSIONS.ANNOUNCEMENTS_MANAGE, label: "Quản lý thông báo" },
       { value: PERMISSIONS.ADS_MANAGE, label: "Quản lý quảng cáo" },
       { value: PERMISSIONS.DISCOUNTS_MANAGE, label: "Quản lý mã giảm giá" },
+      { value: PERMISSIONS.FEEDBACK_MANAGE, label: "Quản lý phản hồi khách hàng" },
       { value: PERMISSIONS.STATS_VIEW, label: "Xem thống kê" }
     ]
   });
@@ -1323,6 +1324,123 @@ router.patch("/users/:id/status", requireAnyPermission([PERMISSIONS.USERS_MANAGE
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Lỗi server" });
+  }
+});
+
+router.get("/feedback", requirePermission(PERMISSIONS.FEEDBACK_MANAGE), async (req, res) => {
+  try {
+    const status = String(req.query.status || "all").trim().toLowerCase();
+    const search = String(req.query.search || "").trim();
+    const where = [];
+    const params = [];
+
+    if (["new", "in_progress", "replied", "closed"].includes(status)) {
+      where.push("customer_feedback.status = ?");
+      params.push(status);
+    }
+
+    if (search) {
+      where.push("(customer_feedback.title LIKE ? OR customer_feedback.content LIKE ? OR users.fullname LIKE ? OR users.email LIKE ?)");
+      const keyword = `%${search}%`;
+      params.push(keyword, keyword, keyword, keyword);
+    }
+
+    const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+    const [feedback] = await db.query(
+      `SELECT customer_feedback.id,
+              customer_feedback.user_id,
+              customer_feedback.rating,
+              customer_feedback.category,
+              customer_feedback.title,
+              customer_feedback.content,
+              customer_feedback.status,
+              customer_feedback.admin_reply,
+              customer_feedback.replied_by,
+              customer_feedback.replied_at,
+              customer_feedback.created_at,
+              customer_feedback.updated_at,
+              users.fullname AS customer_name,
+              users.email AS customer_email,
+              replier.fullname AS replied_by_name
+       FROM customer_feedback
+       JOIN users ON users.id = customer_feedback.user_id
+       LEFT JOIN users replier ON replier.id = customer_feedback.replied_by
+       ${whereSql}
+       ORDER BY
+         CASE customer_feedback.status
+           WHEN 'new' THEN 1
+           WHEN 'in_progress' THEN 2
+           WHEN 'replied' THEN 3
+           ELSE 4
+         END,
+         customer_feedback.created_at DESC`,
+      params
+    );
+
+    res.json(feedback);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Loi server" });
+  }
+});
+
+router.patch("/feedback/:id", requirePermission(PERMISSIONS.FEEDBACK_MANAGE), async (req, res) => {
+  try {
+    const feedbackId = Number(req.params.id);
+    const status = String(req.body.status || "").trim().toLowerCase();
+
+    if (!Number.isInteger(feedbackId) || feedbackId <= 0) {
+      return res.status(400).json({ message: "Ma phan hoi khong hop le" });
+    }
+
+    if (!["new", "in_progress", "replied", "closed"].includes(status)) {
+      return res.status(400).json({ message: "Trang thai phan hoi khong hop le" });
+    }
+
+    const [result] = await db.query(
+      "UPDATE customer_feedback SET status = ? WHERE id = ?",
+      [status, feedbackId]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "Khong tim thay phan hoi" });
+    }
+
+    res.json({ message: "Da cap nhat trang thai phan hoi" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Loi server" });
+  }
+});
+
+router.post("/feedback/:id/reply", requirePermission(PERMISSIONS.FEEDBACK_MANAGE), async (req, res) => {
+  try {
+    const feedbackId = Number(req.params.id);
+    const reply = String(req.body.reply || "").trim();
+
+    if (!Number.isInteger(feedbackId) || feedbackId <= 0) {
+      return res.status(400).json({ message: "Ma phan hoi khong hop le" });
+    }
+
+    if (reply.length < 5 || reply.length > 2000) {
+      return res.status(400).json({ message: "Noi dung phan hoi can tu 5 den 2000 ky tu" });
+    }
+
+    const [result] = await db.query(
+      `UPDATE customer_feedback
+       SET admin_reply = ?, replied_by = ?, replied_at = NOW(), status = 'replied'
+       WHERE id = ?`,
+      [reply, req.user.id, feedbackId]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "Khong tim thay phan hoi" });
+    }
+
+    res.json({ message: "Da gui phan hoi den khach hang" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Loi server" });
   }
 });
 

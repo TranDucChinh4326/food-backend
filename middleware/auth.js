@@ -13,6 +13,7 @@ const PERMISSIONS = {
   ANNOUNCEMENTS_MANAGE: "announcements.manage",
   DISCOUNTS_MANAGE: "discounts.manage",
   ADS_MANAGE: "ads.manage",
+  FEEDBACK_MANAGE: "feedback.manage",
   STATS_VIEW: "stats.view"
 };
 
