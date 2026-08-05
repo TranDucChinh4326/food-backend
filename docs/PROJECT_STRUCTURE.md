@@ -1,24 +1,24 @@
 # Cau truc backend FoodHub
 
-Repo nay chi chua backend Node.js + Express + MySQL de deploy len Render.
+Repo này chỉ chứa backend Node.js + Express + MySQL để deploy lên Render.
 
 ## File chinh
 
-- `index.js`: khoi tao server, CORS, route va health check.
-- `db.js`: tao pool ket noi MySQL tu bien moi truong.
-- `schema.sql`: schema ban dau khi tao database moi.
+- `index.js`: khoi tạo server, CORS, route va health check.
+- `db.js`: tạo pool kết nối MySQL từ bien mới truong.
+- `schema.sql`: schemã bạn dau khi tạo database mới.
 
 ## Thu muc
 
-- `routes/auth.js`: dang ky, dang nhap, social login, ho so.
-- `routes/foods.js`: danh muc va mon an.
-- `routes/orders.js`: gio hang, dat hang, lich su don hang.
-- `routes/admin.js`: API quan tri tai khoan, mat khau va quyen.
-- `routes/announcements.js`: thong bao he thong.
-- `routes/advertisements.js`: banner quang cao.
-- `middleware/auth.js`: xac thuc token va kiem tra quyen.
+- `routes/auth.js`: đăng ký, đăng nhập, social login, hồ sơ.
+- `routes/foods.js`: danh mục va món ăn.
+- `routes/orders.js`: giỏ hàng, đặt hàng, lịch sử đơn hàng.
+- `routes/admin.js`: API quản trị tài khoản, mật khẩu va quyền.
+- `routes/announcements.js`: thông báo he thong.
+- `routes/advertisements.js`: banner quảng cáo.
+- `middleware/auth.js`: xác thực token va kiểm tra quyền.
 - `migrations/`: cac file SQL bo sung khi nang cap tinh nang.
 
-## Luu y deploy
+## Lưu y deploy
 
-Khong dua file `.env` len GitHub. Tren Render chi cau hinh bien moi truong trong tab Environment.
+Không đưa file `.env` len GitHub. Trên Render chỉ cấu hình bien mới truong trong tab Environment.

@@ -214,8 +214,8 @@ CREATE TABLE IF NOT EXISTS advertisements (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT IGNORE INTO categories (id, name, slug, type, parent_id, sort_order, is_active) VALUES
-  (100, 'Do an', 'do-an', 'food', NULL, 1, 1),
-  (101, 'Nuoc uong', 'nuoc-uong', 'drink', NULL, 2, 1);
+  (100, 'Đồ ăn', 'do-an', 'food', NULL, 1, 1),
+  (101, 'Nước uống', 'nuoc-uong', 'drink', NULL, 2, 1);
 
 INSERT IGNORE INTO categories (id, name, slug, type, parent_id, sort_order, is_active) VALUES
   (1, 'Burger', 'burger', 'food', 100, 10, 1),
@@ -231,18 +231,18 @@ INSERT IGNORE INTO categories (id, name, slug, type, parent_id, sort_order, is_a
   (11, 'Ga ran', 'ga-ran', 'food', 100, 70, 1);
 
 INSERT IGNORE INTO foods (id, name, category_id, price, description, image, is_active) VALUES
-  (1, 'Burger bo pho mai', 1, 59000, 'Burger bo mem, pho mai beo ngay, rau tuoi va sot dac biet.', 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd', 1),
-  (2, 'Pizza hai san', 2, 129000, 'Pizza gion thom, topping hai san tuoi ngon, pho mai keo soi.', 'https://images.unsplash.com/photo-1513104890138-7c749659a591', 1),
-  (3, 'Mi cay dac biet', 3, 49000, 'Mi cay nong hoi, nuoc dung dam vi, topping day du.', 'https://images.unsplash.com/photo-1569718212165-3a8278d5f624', 1),
-  (4, 'Ga ran gion cay', 11, 69000, 'Ga ran vang gion, vi cay nhe, an kem tuong ot.', 'https://images.unsplash.com/photo-1626645738196-c2a7c87a8f58', 1),
-  (5, 'Tra dao cam sa', 4, 29000, 'Tra dao thanh mat, huong cam sa thom nhe.', 'https://images.unsplash.com/photo-1556679343-c7306c1976bc', 1),
-  (6, 'Pho bo tai', 6, 55000, 'Pho bo nong hoi, nuoc dung ngot thanh, thit bo mem.', 'https://images.unsplash.com/photo-1582878826629-29b7ad1cdc43', 1);
+  (1, 'Burger bò phô mai', 1, 59000, 'Burger bo mem, pho mai beo ngay, rau tuoi va sot dac biet.', 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd', 1),
+  (2, 'Pizza hải sản', 2, 129000, 'Pizza gion thom, topping hai san tuoi ngon, pho mai keo soi.', 'https://images.unsplash.com/photo-1513104890138-7c749659a591', 1),
+  (3, 'Mì cay đặc biệt', 3, 49000, 'Mi cay nong hoi, nuoc dung dam vi, topping day du.', 'https://images.unsplash.com/photo-1569718212165-3a8278d5f624', 1),
+  (4, 'Gà rán giòn cay', 11, 69000, 'Ga ran vang gion, vi cay nhe, ẩn kem tuong ot.', 'https://images.unsplash.com/photo-1626645738196-c2a7c87a8f58', 1),
+  (5, 'Trà đào cam sả', 4, 29000, 'Tra dao thanh mat, huong cam sa thom nhe.', 'https://images.unsplash.com/photo-1556679343-c7306c1976bc', 1),
+  (6, 'Phở bò tái', 6, 55000, 'Pho bo nong hoi, nuoc dung ngot thanh, thit bo mem.', 'https://images.unsplash.com/photo-1582878826629-29b7ad1cdc43', 1);
 
 INSERT IGNORE INTO announcements (id, title, content, is_active) VALUES
-  (1, 'Mien phi giao hang cho don tu 150.000d', 'FoodHub mien phi giao hang trong khu vuc noi thanh cho cac don hang tu 150.000d.', 1),
-  (2, 'Cap nhat thuc don moi cuoi tuan', 'Nhieu mon an moi se duoc bo sung vao thuc don vao thu bay hang tuan.', 1),
-  (3, 'Ho tro dat hang nhanh qua hotline', 'Neu can ho tro don hang, vui long lien he hotline tren trang lien he cua FoodHub.', 1);
+  (1, 'Miễn phí giao hàng cho don từ 150.000d', 'FoodHub miễn phí giao hàng trong khu vuc nội thành cho cac đơn hàng từ 150.000d.', 1),
+  (2, 'Cập nhật thực đơn mới cuối tuần', 'Nhieu món ăn mới sẽ được bo sung vao thực đơn vao thứ bảy hang tuan.', 1),
+  (3, 'Hỗ trợ đặt hàng nhanh qua hotline', 'Neu can hỗ trợ đơn hàng, vui lòng liên hệ hotline tren trang liên hệ của FoodHub.', 1);
 
 INSERT IGNORE INTO discounts (id, code, name, discount_type, discount_value, min_order, max_discount, usage_limit, is_active) VALUES
-  (1, 'FOODHUB10', 'Giam 10% cho don tu 100.000d', 'percent', 10, 100000, 30000, 100, 1),
-  (2, 'FREESHIP20', 'Giam 20.000d cho don tu 150.000d', 'fixed', 20000, 150000, NULL, NULL, 1);
+  (1, 'FOODHUB10', 'Giam 10% cho don từ 100.000d', 'percent', 10, 100000, 30000, 100, 1),
+  (2, 'FREESHIP20', 'Giam 20.000d cho don từ 150.000d', 'fixed', 20000, 150000, NULL, NULL, 1);

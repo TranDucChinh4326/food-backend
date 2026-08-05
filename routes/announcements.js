@@ -20,7 +20,7 @@ router.get("/", async (req, res) => {
     res.json(announcements);
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Khong the tai thong bao" });
+    res.status(500).json({ message: "Không thể tải thông báo" });
   }
 });
 
@@ -42,7 +42,7 @@ router.get("/archive", async (req, res) => {
     res.json(announcements);
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Khong the tai danh sach thong bao" });
+    res.status(500).json({ message: "Không thể tải danh sách thông báo" });
   }
 });
 

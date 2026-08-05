@@ -54,19 +54,19 @@ function validateAdvertisementPayload(req, res, next) {
   const position = VALID_POSITIONS.has(req.body.position) ? req.body.position : "both";
 
   if (!title) {
-    return res.status(400).json({ message: "Vui long nhap tieu de quang cao." });
+    return res.status(400).json({ message: "Vui lòng nhập tiêu đề quảng cáo." });
   }
 
   if (!image) {
-    return res.status(400).json({ message: "Vui long chon hinh anh quang cao." });
+    return res.status(400).json({ message: "Vui lòng chọn hình ảnh quảng cáo." });
   }
 
   if (!/^https?:\/\//i.test(image) && !/^data:image\/(png|jpe?g|webp);base64,/i.test(image)) {
-    return res.status(400).json({ message: "Anh quang cao khong hop le." });
+    return res.status(400).json({ message: "Anh quảng cáo không hợp lệ." });
   }
 
   if (image.length > 2_200_000) {
-    return res.status(413).json({ message: "Anh qua lon. Vui long chon anh nho hon 1.5MB." });
+    return res.status(413).json({ message: "Ảnh quá lớn. Vui lòng chọn anh nhỏ hơn 1.5MB." });
   }
 
   req.advertisementPayload = {
@@ -100,7 +100,7 @@ router.get("/", async (req, res) => {
     res.json(advertisements.map(normalizeAdvertisement));
   } catch (error) {
     console.error("Load advertisements error:", error);
-    res.status(500).json({ message: "Khong the tai quang cao." });
+    res.status(500).json({ message: "Không thể tải quảng cáo." });
   }
 });
 
@@ -125,7 +125,7 @@ router.get("/admin", requirePermission(PERMISSIONS.ADS_MANAGE), async (req, res)
     res.json(advertisements);
   } catch (error) {
     console.error("Admin advertisements error:", error);
-    res.status(500).json({ message: "Khong the tai danh sach quang cao." });
+    res.status(500).json({ message: "Không thể tải danh sách quảng cáo." });
   }
 });
 
@@ -134,13 +134,13 @@ router.get("/admin/:id", requirePermission(PERMISSIONS.ADS_MANAGE), async (req, 
     const [rows] = await db.query("SELECT * FROM advertisements WHERE id = ? LIMIT 1", [req.params.id]);
 
     if (rows.length === 0) {
-      return res.status(404).json({ message: "Khong tim thay quang cao." });
+      return res.status(404).json({ message: "Không tìm thấy quảng cáo." });
     }
 
     return res.json(normalizeAdvertisement(rows[0]));
   } catch (error) {
     console.error("Get advertisement error:", error);
-    return res.status(500).json({ message: "Khong the tai quang cao." });
+    return res.status(500).json({ message: "Không thể tải quảng cáo." });
   }
 });
 
@@ -164,10 +164,10 @@ router.post("/admin", requirePermission(PERMISSIONS.ADS_MANAGE), validateAdverti
       ]
     );
 
-    res.status(201).json({ message: "Da tao quang cao.", id: result.insertId });
+    res.status(201).json({ message: "Đã tạo quảng cáo.", id: result.insertId });
   } catch (error) {
     console.error("Create advertisement error:", error);
-    res.status(500).json({ message: "Khong the tao quang cao." });
+    res.status(500).json({ message: "Không thể tạo quảng cáo." });
   }
 });
 
@@ -200,13 +200,13 @@ router.put("/admin/:id", requirePermission(PERMISSIONS.ADS_MANAGE), validateAdve
     );
 
     if (result.affectedRows === 0) {
-      return res.status(404).json({ message: "Khong tim thay quang cao." });
+      return res.status(404).json({ message: "Không tìm thấy quảng cáo." });
     }
 
-    return res.json({ message: "Da cap nhat quang cao." });
+    return res.json({ message: "Da cập nhật quảng cáo." });
   } catch (error) {
     console.error("Update advertisement error:", error);
-    return res.status(500).json({ message: "Khong the cap nhat quang cao." });
+    return res.status(500).json({ message: "Không thể cập nhật quảng cáo." });
   }
 });
 
@@ -215,13 +215,13 @@ router.delete("/admin/:id", requirePermission(PERMISSIONS.ADS_MANAGE), async (re
     const [result] = await db.query("DELETE FROM advertisements WHERE id = ?", [req.params.id]);
 
     if (result.affectedRows === 0) {
-      return res.status(404).json({ message: "Khong tim thay quang cao." });
+      return res.status(404).json({ message: "Không tìm thấy quảng cáo." });
     }
 
-    return res.json({ message: "Da xoa quang cao." });
+    return res.json({ message: "Đã xóa quảng cáo." });
   } catch (error) {
     console.error("Delete advertisement error:", error);
-    return res.status(500).json({ message: "Khong the xoa quang cao." });
+    return res.status(500).json({ message: "Không thể xóa quảng cáo." });
   }
 });
 

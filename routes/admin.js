@@ -149,23 +149,23 @@ function validateDiscountPayload(body) {
   const usageLimit = parseNullablePositiveNumber(body.usageLimit ?? body.usage_limit);
 
   if (!code) {
-    return { error: "Vui long nhap ma giam gia" };
+    return { error: "Vui lòng nhập mã giảm giá" };
   }
 
   if (!/^[A-Z0-9_-]{3,40}$/.test(code)) {
-    return { error: "Ma giam gia chi gom chu, so, dau gach ngang hoac gach duoi" };
+    return { error: "Mã giảm giá chi gom chu, so, dau gach ngang hoặc gach duoi" };
   }
 
   if (!name) {
-    return { error: "Vui long nhap ten chuong trinh" };
+    return { error: "Vui lòng nhập ten chuong trinh" };
   }
 
   if (!["percent", "fixed"].includes(discountType)) {
-    return { error: "Kieu giam gia khong hop le" };
+    return { error: "Kiểu giảm giá không hợp lệ" };
   }
 
   if (discountValue <= 0 || (discountType === "percent" && discountValue > 100)) {
-    return { error: "Gia tri giam gia khong hop le" };
+    return { error: "Giá trị giảm giá không hợp lệ" };
   }
 
   return {
@@ -223,15 +223,15 @@ function ensureManageAccess(req, res, targetRole = "USER") {
   const normalizedTargetRole = String(targetRole || "USER").toUpperCase();
 
   if (normalizedTargetRole === ADMIN_ROLE) {
-    return res.status(403).json({ message: "Khong duoc chinh sua quyen ADMIN qua man hinh nay" });
+    return res.status(403).json({ message: "Không được chinh sửa quyền ADMIN qua man hinh này" });
   }
 
   if (normalizedTargetRole === "USER" && !canManageUsers(req.user)) {
-    return res.status(403).json({ message: "Ban khong co quyen quan ly khach hang" });
+    return res.status(403).json({ message: "Bạn không có quyền quản lý khách hàng" });
   }
 
   if (normalizedTargetRole !== "USER" && !canManageStaff(req.user)) {
-    return res.status(403).json({ message: "Ban khong co quyen quan ly nhan vien" });
+    return res.status(403).json({ message: "Bạn không có quyền quản lý nhân viên" });
   }
 
   return null;
@@ -241,16 +241,16 @@ router.get("/permissions", requirePermission(PERMISSIONS.ROLES_MANAGE), (req, re
   res.json({
     roles: MANAGED_ROLES,
     permissions: [
-      { value: PERMISSIONS.ORDERS_MANAGE, label: "Quan ly don hang" },
-      { value: PERMISSIONS.FOODS_MANAGE, label: "Quan ly mon an" },
-      { value: PERMISSIONS.USERS_MANAGE, label: "Quan ly khach hang" },
-      { value: PERMISSIONS.STAFF_MANAGE, label: "Quan ly nhan vien" },
-      { value: PERMISSIONS.ROLES_MANAGE, label: "Cap phat quyen" },
-      { value: PERMISSIONS.PASSWORD_RESET, label: "Dat lai mat khau theo yeu cau" },
-      { value: PERMISSIONS.ANNOUNCEMENTS_MANAGE, label: "Quan ly thong bao" },
-      { value: PERMISSIONS.ADS_MANAGE, label: "Quan ly quang cao" },
-      { value: PERMISSIONS.DISCOUNTS_MANAGE, label: "Quan ly ma giam gia" },
-      { value: PERMISSIONS.STATS_VIEW, label: "Xem thong ke" }
+      { value: PERMISSIONS.ORDERS_MANAGE, label: "Quản lý đơn hàng" },
+      { value: PERMISSIONS.FOODS_MANAGE, label: "Quản lý món ăn" },
+      { value: PERMISSIONS.USERS_MANAGE, label: "Quản lý khách hàng" },
+      { value: PERMISSIONS.STAFF_MANAGE, label: "Quản lý nhân viên" },
+      { value: PERMISSIONS.ROLES_MANAGE, label: "Cap phat quyền" },
+      { value: PERMISSIONS.PASSWORD_RESET, label: "Dat lai mật khẩu theo yêu cầu" },
+      { value: PERMISSIONS.ANNOUNCEMENTS_MANAGE, label: "Quản lý thông báo" },
+      { value: PERMISSIONS.ADS_MANAGE, label: "Quản lý quảng cáo" },
+      { value: PERMISSIONS.DISCOUNTS_MANAGE, label: "Quản lý mã giảm giá" },
+      { value: PERMISSIONS.STATS_VIEW, label: "Xem thống kê" }
     ]
   });
 });
@@ -293,7 +293,7 @@ router.get("/announcements", requirePermission(PERMISSIONS.ANNOUNCEMENTS_MANAGE)
     res.json(announcements);
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -302,7 +302,7 @@ router.get("/announcements/:id", requirePermission(PERMISSIONS.ANNOUNCEMENTS_MAN
     const announcementId = Number(req.params.id);
 
     if (!Number.isInteger(announcementId) || announcementId <= 0) {
-      return res.status(400).json({ message: "Ma thong bao khong hop le" });
+      return res.status(400).json({ message: "Ma thông báo không hợp lệ" });
     }
 
     const [announcements] = await db.query(
@@ -313,13 +313,13 @@ router.get("/announcements/:id", requirePermission(PERMISSIONS.ANNOUNCEMENTS_MAN
     );
 
     if (announcements.length === 0) {
-      return res.status(404).json({ message: "Khong tim thay thong bao" });
+      return res.status(404).json({ message: "Không tìm thấy thông báo" });
     }
 
     res.json(announcements[0]);
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -335,7 +335,7 @@ router.post("/announcements", requirePermission(PERMISSIONS.ANNOUNCEMENTS_MANAGE
     } = req.body;
 
     if (!String(title || "").trim()) {
-      return res.status(400).json({ message: "Vui long nhap tieu de thong bao" });
+      return res.status(400).json({ message: "Vui lòng nhập tiêu đề thông báo" });
     }
 
     const resolvedPublishedAt = publishedAt || null;
@@ -353,10 +353,10 @@ router.post("/announcements", requirePermission(PERMISSIONS.ANNOUNCEMENTS_MANAGE
       ]
     );
 
-    res.status(201).json({ message: "Da tao thong bao", id: result.insertId });
+    res.status(201).json({ message: "Đã tạo thông báo", id: result.insertId });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Khong the tao thong bao" });
+    res.status(500).json({ message: "Không thể tạo thông báo" });
   }
 });
 
@@ -373,11 +373,11 @@ router.put("/announcements/:id", requirePermission(PERMISSIONS.ANNOUNCEMENTS_MAN
     } = req.body;
 
     if (!Number.isInteger(announcementId) || announcementId <= 0) {
-      return res.status(400).json({ message: "Ma thong bao khong hop le" });
+      return res.status(400).json({ message: "Ma thông báo không hợp lệ" });
     }
 
     if (!String(title || "").trim()) {
-      return res.status(400).json({ message: "Vui long nhap tieu de thong bao" });
+      return res.status(400).json({ message: "Vui lòng nhập tiêu đề thông báo" });
     }
 
     const resolvedPublishedAt = publishedAt || null;
@@ -398,13 +398,13 @@ router.put("/announcements/:id", requirePermission(PERMISSIONS.ANNOUNCEMENTS_MAN
     );
 
     if (result.affectedRows === 0) {
-      return res.status(404).json({ message: "Khong tim thay thong bao" });
+      return res.status(404).json({ message: "Không tìm thấy thông báo" });
     }
 
-    res.json({ message: "Da cap nhat thong bao" });
+    res.json({ message: "Da cập nhật thông báo" });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Khong the cap nhat thong bao" });
+    res.status(500).json({ message: "Không thể cập nhật thông báo" });
   }
 });
 
@@ -413,19 +413,19 @@ router.delete("/announcements/:id", requirePermission(PERMISSIONS.ANNOUNCEMENTS_
     const announcementId = Number(req.params.id);
 
     if (!Number.isInteger(announcementId) || announcementId <= 0) {
-      return res.status(400).json({ message: "Ma thong bao khong hop le" });
+      return res.status(400).json({ message: "Ma thông báo không hợp lệ" });
     }
 
     const [result] = await db.query("DELETE FROM announcements WHERE id = ?", [announcementId]);
 
     if (result.affectedRows === 0) {
-      return res.status(404).json({ message: "Khong tim thay thong bao" });
+      return res.status(404).json({ message: "Không tìm thấy thông báo" });
     }
 
-    res.json({ message: "Da xoa thong bao" });
+    res.json({ message: "Đã xóa thông báo" });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Khong the xoa thong bao" });
+    res.status(500).json({ message: "Không thể xóa thông báo" });
   }
 });
 
@@ -473,7 +473,7 @@ router.get("/discounts", requirePermission(PERMISSIONS.DISCOUNTS_MANAGE), async 
     res.json(discounts);
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -482,7 +482,7 @@ router.get("/discounts/:id", requirePermission(PERMISSIONS.DISCOUNTS_MANAGE), as
     const discountId = Number(req.params.id);
 
     if (!Number.isInteger(discountId) || discountId <= 0) {
-      return res.status(400).json({ message: "Ma giam gia khong hop le" });
+      return res.status(400).json({ message: "Mã giảm giá không hợp lệ" });
     }
 
     const [discounts] = await db.query(
@@ -494,13 +494,13 @@ router.get("/discounts/:id", requirePermission(PERMISSIONS.DISCOUNTS_MANAGE), as
     );
 
     if (discounts.length === 0) {
-      return res.status(404).json({ message: "Khong tim thay ma giam gia" });
+      return res.status(404).json({ message: "Không tìm thấy mã giảm giá" });
     }
 
     res.json(discounts[0]);
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -530,14 +530,14 @@ router.post("/discounts", requirePermission(PERMISSIONS.DISCOUNTS_MANAGE), async
       ]
     );
 
-    res.status(201).json({ message: "Da tao ma giam gia", id: result.insertId });
+    res.status(201).json({ message: "Đã tạo mã giảm giá", id: result.insertId });
   } catch (error) {
     if (error.code === "ER_DUP_ENTRY") {
-      return res.status(409).json({ message: "Ma giam gia da ton tai" });
+      return res.status(409).json({ message: "Mã giảm giá da tồn tại" });
     }
 
     console.error(error);
-    res.status(500).json({ message: "Khong the tao ma giam gia" });
+    res.status(500).json({ message: "Không thể tạo mã giảm giá" });
   }
 });
 
@@ -546,7 +546,7 @@ router.put("/discounts/:id", requirePermission(PERMISSIONS.DISCOUNTS_MANAGE), as
     const discountId = Number(req.params.id);
 
     if (!Number.isInteger(discountId) || discountId <= 0) {
-      return res.status(400).json({ message: "Ma giam gia khong hop le" });
+      return res.status(400).json({ message: "Mã giảm giá không hợp lệ" });
     }
 
     const parsed = validateDiscountPayload(req.body);
@@ -576,17 +576,17 @@ router.put("/discounts/:id", requirePermission(PERMISSIONS.DISCOUNTS_MANAGE), as
     );
 
     if (result.affectedRows === 0) {
-      return res.status(404).json({ message: "Khong tim thay ma giam gia" });
+      return res.status(404).json({ message: "Không tìm thấy mã giảm giá" });
     }
 
-    res.json({ message: "Da cap nhat ma giam gia" });
+    res.json({ message: "Da cập nhật mã giảm giá" });
   } catch (error) {
     if (error.code === "ER_DUP_ENTRY") {
-      return res.status(409).json({ message: "Ma giam gia da ton tai" });
+      return res.status(409).json({ message: "Mã giảm giá da tồn tại" });
     }
 
     console.error(error);
-    res.status(500).json({ message: "Khong the cap nhat ma giam gia" });
+    res.status(500).json({ message: "Không thể cập nhật mã giảm giá" });
   }
 });
 
@@ -595,19 +595,19 @@ router.delete("/discounts/:id", requirePermission(PERMISSIONS.DISCOUNTS_MANAGE),
     const discountId = Number(req.params.id);
 
     if (!Number.isInteger(discountId) || discountId <= 0) {
-      return res.status(400).json({ message: "Ma giam gia khong hop le" });
+      return res.status(400).json({ message: "Mã giảm giá không hợp lệ" });
     }
 
     const [result] = await db.query("DELETE FROM discounts WHERE id = ?", [discountId]);
 
     if (result.affectedRows === 0) {
-      return res.status(404).json({ message: "Khong tim thay ma giam gia" });
+      return res.status(404).json({ message: "Không tìm thấy mã giảm giá" });
     }
 
-    res.json({ message: "Da xoa ma giam gia" });
+    res.json({ message: "Đã xóa mã giảm giá" });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Khong the xoa ma giam gia" });
+    res.status(500).json({ message: "Không thể xóa mã giảm giá" });
   }
 });
 
@@ -702,7 +702,7 @@ router.get("/stats", requireAnyPermission([PERMISSIONS.STATS_VIEW, PERMISSIONS.O
     });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Khong the tai thong ke" });
+    res.status(500).json({ message: "Không thể tải thống kê" });
   }
 });
 
@@ -743,7 +743,7 @@ router.get("/orders", requirePermission(PERMISSIONS.ORDERS_MANAGE), async (req, 
     })));
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -754,11 +754,11 @@ router.patch("/orders/:id/status", requirePermission(PERMISSIONS.ORDERS_MANAGE),
     const allowedStatuses = ["pending_payment", "pending", "confirmed", "delivering", "done", "cancelled"];
 
     if (!Number.isInteger(orderId) || orderId <= 0) {
-      return res.status(400).json({ message: "Ma don hang khong hop le" });
+      return res.status(400).json({ message: "Ma đơn hàng không hợp lệ" });
     }
 
     if (!allowedStatuses.includes(status)) {
-      return res.status(400).json({ message: "Trang thai khong hop le" });
+      return res.status(400).json({ message: "Trạng thái không hợp lệ" });
     }
 
     const [result] = await db.query(
@@ -767,13 +767,13 @@ router.patch("/orders/:id/status", requirePermission(PERMISSIONS.ORDERS_MANAGE),
     );
 
     if (result.affectedRows === 0) {
-      return res.status(404).json({ message: "Khong tim thay don hang" });
+      return res.status(404).json({ message: "Không tìm thấy đơn hàng" });
     }
 
-    res.json({ message: "Cap nhat trang thai thanh cong" });
+    res.json({ message: "Cập nhật trạng thái thành công" });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -784,11 +784,11 @@ router.patch("/orders/:id/payment", requirePermission(PERMISSIONS.ORDERS_MANAGE)
     const allowedStatuses = ["unpaid", "pending", "paid", "failed", "cancelled", "expired", "refunded"];
 
     if (!Number.isInteger(orderId) || orderId <= 0) {
-      return res.status(400).json({ message: "Ma don hang khong hop le" });
+      return res.status(400).json({ message: "Ma đơn hàng không hợp lệ" });
     }
 
     if (!allowedStatuses.includes(paymentStatus)) {
-      return res.status(400).json({ message: "Trang thai thanh toan khong hop le" });
+      return res.status(400).json({ message: "Trạng thái thanh toan không hợp lệ" });
     }
 
     const nextOrderStatus = paymentStatus === "paid" ? "pending" : undefined;
@@ -800,17 +800,17 @@ router.patch("/orders/:id/payment", requirePermission(PERMISSIONS.ORDERS_MANAGE)
     );
 
     if (result.affectedRows === 0) {
-      return res.status(404).json({ message: "Khong tim thay don hang" });
+      return res.status(404).json({ message: "Không tìm thấy đơn hàng" });
     }
 
     if (paymentStatus === "paid") {
       await db.query("UPDATE payment_sessions SET status = 'paid', paid_at = NOW() WHERE order_id = ?", [orderId]);
     }
 
-    res.json({ message: "Cap nhat thanh toan thanh cong" });
+    res.json({ message: "Cập nhật thanh toan thành công" });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -860,7 +860,7 @@ router.get("/categories", requirePermission(PERMISSIONS.FOODS_MANAGE), async (re
     res.json(categories);
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -872,14 +872,14 @@ router.post("/categories", requirePermission(PERMISSIONS.FOODS_MANAGE), async (r
     const isActive = req.body.isActive === false || req.body.isActive === 0 || req.body.isActive === "0" ? 0 : 1;
 
     if (!name) {
-      return res.status(400).json({ message: "Vui long nhap ten danh muc" });
+      return res.status(400).json({ message: "Vui lòng nhập ten danh mục" });
     }
 
     const slug = await createUniqueCategorySlug(name);
     const type = await resolveCategoryType(parentId, slug);
 
     if (!type) {
-      return res.status(400).json({ message: "Danh muc cha khong hop le" });
+      return res.status(400).json({ message: "Danh mục cha không hợp lệ" });
     }
 
     const [result] = await db.query(
@@ -888,10 +888,10 @@ router.post("/categories", requirePermission(PERMISSIONS.FOODS_MANAGE), async (r
       [name, slug, type, parentId, sortOrder, isActive]
     );
 
-    res.status(201).json({ message: "Them danh muc thanh cong", id: result.insertId, slug });
+    res.status(201).json({ message: "Thêm danh mục thành công", id: result.insertId, slug });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -904,22 +904,22 @@ router.put("/categories/:id", requirePermission(PERMISSIONS.FOODS_MANAGE), async
     const isActive = req.body.isActive === false || req.body.isActive === 0 || req.body.isActive === "0" ? 0 : 1;
 
     if (!Number.isInteger(categoryId) || categoryId <= 0) {
-      return res.status(400).json({ message: "Ma danh muc khong hop le" });
+      return res.status(400).json({ message: "Ma danh mục không hợp lệ" });
     }
 
     if (!name) {
-      return res.status(400).json({ message: "Vui long nhap ten danh muc" });
+      return res.status(400).json({ message: "Vui lòng nhập ten danh mục" });
     }
 
     if (parentId === categoryId) {
-      return res.status(400).json({ message: "Danh muc cha khong duoc trung voi danh muc hien tai" });
+      return res.status(400).json({ message: "Danh mục cha không được trung voi danh mục hiện tại" });
     }
 
     const slug = await createUniqueCategorySlug(name, categoryId);
     const type = await resolveCategoryType(parentId, slug);
 
     if (!type) {
-      return res.status(400).json({ message: "Danh muc cha khong hop le" });
+      return res.status(400).json({ message: "Danh mục cha không hợp lệ" });
     }
 
     const [result] = await db.query(
@@ -930,13 +930,13 @@ router.put("/categories/:id", requirePermission(PERMISSIONS.FOODS_MANAGE), async
     );
 
     if (result.affectedRows === 0) {
-      return res.status(404).json({ message: "Khong tim thay danh muc" });
+      return res.status(404).json({ message: "Không tìm thấy danh mục" });
     }
 
-    res.json({ message: "Cap nhat danh muc thanh cong", slug });
+    res.json({ message: "Cập nhật danh mục thành công", slug });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -945,7 +945,7 @@ router.delete("/categories/:id", requirePermission(PERMISSIONS.FOODS_MANAGE), as
     const categoryId = Number(req.params.id);
 
     if (!Number.isInteger(categoryId) || categoryId <= 0) {
-      return res.status(400).json({ message: "Ma danh muc khong hop le" });
+      return res.status(400).json({ message: "Ma danh mục không hợp lệ" });
     }
 
     const [result] = await db.query(
@@ -954,13 +954,13 @@ router.delete("/categories/:id", requirePermission(PERMISSIONS.FOODS_MANAGE), as
     );
 
     if (result.affectedRows === 0) {
-      return res.status(404).json({ message: "Khong tim thay danh muc" });
+      return res.status(404).json({ message: "Không tìm thấy danh mục" });
     }
 
-    res.json({ message: "Da an danh muc" });
+    res.json({ message: "Đã ẩn danh mục" });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -1002,7 +1002,7 @@ router.get("/foods", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req, re
     res.json(foods);
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -1011,7 +1011,7 @@ router.post("/foods", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req, r
     const { name, categoryId, price, stockQuantity, description = "", image = "", isActive = 1 } = req.body;
 
     if (!name || !categoryId || !price) {
-      return res.status(400).json({ message: "Vui long nhap ten mon, danh muc va gia" });
+      return res.status(400).json({ message: "Vui lòng nhập ten mon, danh mục va gia" });
     }
 
     const normalizedStock = Math.max(0, parsePositiveNumber(stockQuantity, 0));
@@ -1022,10 +1022,10 @@ router.post("/foods", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req, r
       [name.trim(), Number(categoryId), Number(price), normalizedStock, description.trim(), image.trim(), Number(isActive)]
     );
 
-    res.status(201).json({ message: "Them mon thanh cong", id: result.insertId });
+    res.status(201).json({ message: "Thêm mon thành công", id: result.insertId });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -1035,11 +1035,11 @@ router.put("/foods/:id", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req
     const { name, categoryId, price, stockQuantity, description = "", image = "", isActive = 1 } = req.body;
 
     if (!Number.isInteger(foodId) || foodId <= 0) {
-      return res.status(400).json({ message: "Ma mon khong hop le" });
+      return res.status(400).json({ message: "Ma mon không hợp lệ" });
     }
 
     if (!name || !categoryId || !price) {
-      return res.status(400).json({ message: "Vui long nhap ten mon, danh muc va gia" });
+      return res.status(400).json({ message: "Vui lòng nhập ten mon, danh mục va gia" });
     }
 
     const normalizedStock = Math.max(0, parsePositiveNumber(stockQuantity, 0));
@@ -1061,13 +1061,13 @@ router.put("/foods/:id", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req
     );
 
     if (result.affectedRows === 0) {
-      return res.status(404).json({ message: "Khong tim thay mon an" });
+      return res.status(404).json({ message: "Không tìm thấy món ăn" });
     }
 
-    res.json({ message: "Cap nhat mon thanh cong" });
+    res.json({ message: "Cập nhật mon thành công" });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -1076,7 +1076,7 @@ router.delete("/foods/:id", requirePermission(PERMISSIONS.FOODS_MANAGE), async (
     const foodId = Number(req.params.id);
 
     if (!Number.isInteger(foodId) || foodId <= 0) {
-      return res.status(400).json({ message: "Ma mon khong hop le" });
+      return res.status(400).json({ message: "Ma mon không hợp lệ" });
     }
 
     const [result] = await db.query(
@@ -1085,13 +1085,13 @@ router.delete("/foods/:id", requirePermission(PERMISSIONS.FOODS_MANAGE), async (
     );
 
     if (result.affectedRows === 0) {
-      return res.status(404).json({ message: "Khong tim thay mon an" });
+      return res.status(404).json({ message: "Không tìm thấy món ăn" });
     }
 
-    res.json({ message: "Da an mon khoi menu" });
+    res.json({ message: "Đã ẩn mon khoi menu" });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -1131,7 +1131,7 @@ router.get("/users", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISSIONS
     res.json(users.map(publicManagedUser));
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -1142,23 +1142,23 @@ router.post("/users", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISSION
     const normalizedRole = String(role || "USER").trim().toUpperCase();
 
     if (!fullname || !normalizedEmail || !password) {
-      return res.status(400).json({ message: "Vui long nhap ho ten, email va mat khau" });
+      return res.status(400).json({ message: "Vui lòng nhập họ tên, email va mật khẩu" });
     }
 
     if (!MANAGED_ROLES.includes(normalizedRole)) {
-      return res.status(400).json({ message: "Vai tro khong hop le" });
+      return res.status(400).json({ message: "Vai tro không hợp lệ" });
     }
 
     const blocked = ensureManageAccess(req, res, normalizedRole);
     if (blocked) return;
 
     if (password.length < 6) {
-      return res.status(400).json({ message: "Mat khau toi thieu 6 ky tu" });
+      return res.status(400).json({ message: "Mật khẩu tối thiểu 6 ky tu" });
     }
 
     const [existingUsers] = await db.query("SELECT id FROM users WHERE email = ?", [normalizedEmail]);
     if (existingUsers.length > 0) {
-      return res.status(409).json({ message: "Email da ton tai" });
+      return res.status(409).json({ message: "Email da tồn tại" });
     }
 
     const hashedPassword = await bcrypt.hash(String(password), 10);
@@ -1180,10 +1180,10 @@ router.post("/users", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISSION
     );
     await ensureLocalProvider(result.insertId, normalizedEmail);
 
-    res.status(201).json({ message: "Da tao tai khoan", id: result.insertId });
+    res.status(201).json({ message: "Đã tạo tài khoản", id: result.insertId });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Khong the tao tai khoan" });
+    res.status(500).json({ message: "Không thể tạo tài khoản" });
   }
 });
 
@@ -1194,21 +1194,21 @@ router.post("/staff", requirePermission(PERMISSIONS.STAFF_MANAGE), async (req, r
     const normalizedRole = String(role || "").trim().toUpperCase();
 
     if (!fullname || !normalizedEmail || !password) {
-      return res.status(400).json({ message: "Vui long nhap ho ten, email va mat khau" });
+      return res.status(400).json({ message: "Vui lòng nhập họ tên, email va mật khẩu" });
     }
 
     if (!MANAGED_ROLES.includes(normalizedRole) || normalizedRole === "USER") {
-      return res.status(400).json({ message: "Vai tro nhan vien khong hop le" });
+      return res.status(400).json({ message: "Vai tro nhân viên không hợp lệ" });
     }
 
     if (password.length < 6) {
-      return res.status(400).json({ message: "Mat khau toi thieu 6 ky tu" });
+      return res.status(400).json({ message: "Mật khẩu tối thiểu 6 ky tu" });
     }
 
     const [oldUsers] = await db.query("SELECT id FROM users WHERE email = ?", [normalizedEmail]);
 
     if (oldUsers.length > 0) {
-      return res.status(400).json({ message: "Email da ton tai" });
+      return res.status(400).json({ message: "Email da tồn tại" });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -1226,10 +1226,10 @@ router.post("/staff", requirePermission(PERMISSIONS.STAFF_MANAGE), async (req, r
     );
     await ensureLocalProvider(result.insertId, normalizedEmail);
 
-    res.status(201).json({ message: "Da tao tai khoan nhan vien", id: result.insertId });
+    res.status(201).json({ message: "Đã tạo tài khoản nhân viên", id: result.insertId });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -1241,15 +1241,15 @@ router.put("/users/:id", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISS
     const normalizedRole = String(role || "USER").trim().toUpperCase();
 
     if (!Number.isInteger(userId) || userId <= 0) {
-      return res.status(400).json({ message: "Ma tai khoan khong hop le" });
+      return res.status(400).json({ message: "Ma tài khoản không hợp lệ" });
     }
 
     if (!fullname || !normalizedEmail) {
-      return res.status(400).json({ message: "Vui long nhap ho ten va email" });
+      return res.status(400).json({ message: "Vui lòng nhập họ tên va email" });
     }
 
     if (!MANAGED_ROLES.includes(normalizedRole)) {
-      return res.status(400).json({ message: "Vai tro khong hop le" });
+      return res.status(400).json({ message: "Vai tro không hợp lệ" });
     }
 
     const blocked = ensureManageAccess(req, res, normalizedRole);
@@ -1258,7 +1258,7 @@ router.put("/users/:id", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISS
     const [targetUsers] = await db.query("SELECT id, role, permissions FROM users WHERE id = ?", [userId]);
 
     if (targetUsers.length === 0) {
-      return res.status(404).json({ message: "Khong tim thay tai khoan" });
+      return res.status(404).json({ message: "Không tìm thấy tài khoản" });
     }
 
     const targetBlocked = ensureManageAccess(req, res, targetUsers[0].role);
@@ -1270,7 +1270,7 @@ router.put("/users/:id", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISS
     );
 
     if (oldUsers.length > 0) {
-      return res.status(400).json({ message: "Email da duoc tai khoan khac su dung" });
+      return res.status(400).json({ message: "Email đã được tài khoản khác sử dụng" });
     }
 
     await db.query(
@@ -1289,10 +1289,10 @@ router.put("/users/:id", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISS
       ]
     );
 
-    res.json({ message: "Da cap nhat tai khoan" });
+    res.json({ message: "Da cập nhật tài khoản" });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -1302,27 +1302,27 @@ router.patch("/users/:id/status", requireAnyPermission([PERMISSIONS.USERS_MANAGE
     const isActive = Boolean(req.body.isActive);
 
     if (!Number.isInteger(userId) || userId <= 0) {
-      return res.status(400).json({ message: "Ma tai khoan khong hop le" });
+      return res.status(400).json({ message: "Ma tài khoản không hợp lệ" });
     }
 
     if (Number(req.user.id) === userId) {
-      return res.status(400).json({ message: "Khong the tu khoa tai khoan dang dang nhap" });
+      return res.status(400).json({ message: "Không thể tự khóa tài khoản đang đăng nhập" });
     }
 
     const [targetUsers] = await db.query("SELECT id, role FROM users WHERE id = ?", [userId]);
 
     if (targetUsers.length === 0) {
-      return res.status(404).json({ message: "Khong tim thay tai khoan" });
+      return res.status(404).json({ message: "Không tìm thấy tài khoản" });
     }
 
     const blocked = ensureManageAccess(req, res, targetUsers[0].role);
     if (blocked) return;
 
     await db.query("UPDATE users SET is_active = ? WHERE id = ?", [isActive ? 1 : 0, userId]);
-    res.json({ message: isActive ? "Da mo khoa tai khoan" : "Da khoa tai khoan" });
+    res.json({ message: isActive ? "Da mo khoa tài khoản" : "Da khoa tài khoản" });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -1332,17 +1332,17 @@ router.put("/users/:id/password", requirePermission(PERMISSIONS.PASSWORD_RESET),
     const { newPassword } = req.body;
 
     if (!Number.isInteger(userId) || userId <= 0) {
-      return res.status(400).json({ message: "Ma tai khoan khong hop le" });
+      return res.status(400).json({ message: "Ma tài khoản không hợp lệ" });
     }
 
     if (!newPassword || String(newPassword).length < 6) {
-      return res.status(400).json({ message: "Mat khau moi toi thieu 6 ky tu" });
+      return res.status(400).json({ message: "Mật khẩu mới tối thiểu 6 ky tu" });
     }
 
     const [targetUsers] = await db.query("SELECT id, email, role FROM users WHERE id = ?", [userId]);
 
     if (targetUsers.length === 0) {
-      return res.status(404).json({ message: "Khong tim thay tai khoan" });
+      return res.status(404).json({ message: "Không tìm thấy tài khoản" });
     }
 
     const blocked = ensureManageAccess(req, res, targetUsers[0].role);
@@ -1355,10 +1355,10 @@ router.put("/users/:id/password", requirePermission(PERMISSIONS.PASSWORD_RESET),
     ]);
     await ensureLocalProvider(userId, targetUsers[0].email);
 
-    res.json({ message: "Da dat lai mat khau moi cho tai khoan" });
+    res.json({ message: "Da dat lai mật khẩu mới cho tài khoản" });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 

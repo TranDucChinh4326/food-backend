@@ -21,7 +21,7 @@ function ensureQrBankConfig() {
   const config = getBankConfig();
 
   if (!config.bankCode || !config.accountNo || !config.accountName) {
-    const error = new Error("Chua cau hinh thong tin ngan hang nhan thanh toan QR");
+    const error = new Error("Chưa cấu hình thong tin ngan hang nhan thanh toan QR");
     error.status = 500;
     throw error;
   }
@@ -80,21 +80,21 @@ router.post("/", requireAuth, async (req, res) => {
     const normalizedPaymentMethod = String(paymentMethod || "cod").toLowerCase();
 
     if (!customerName || !customerPhone || !customerAddress) {
-      return res.status(400).json({ message: "Vui long nhap thong tin giao hang" });
+      return res.status(400).json({ message: "Vui lòng nhập thong tin giao hàng" });
     }
 
     if (!["cod", "qr", "wallet"].includes(normalizedPaymentMethod)) {
-      return res.status(400).json({ message: "Phuong thuc thanh toan khong hop le" });
+      return res.status(400).json({ message: "Phuong thuc thanh toan không hợp lệ" });
     }
 
     if (normalizedPaymentMethod === "wallet") {
-      return res.status(400).json({ message: "Thanh toan bang so du tai khoan chua duoc kich hoat. Vui long chon COD hoac QR." });
+      return res.status(400).json({ message: "Thanh toan bang số dư tài khoản chưa được kích hoạt. Vui lòng chọn COD hoặc QR." });
     }
 
     const bankConfig = normalizedPaymentMethod === "qr" ? ensureQrBankConfig() : null;
 
     if (!Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ message: "Gio hang dang trong" });
+      return res.status(400).json({ message: "Giỏ hàng đang trống" });
     }
 
     const normalizedItems = items.map(item => ({
@@ -107,7 +107,7 @@ router.post("/", requireAuth, async (req, res) => {
     );
 
     if (hasInvalidItem) {
-      return res.status(400).json({ message: "Gio hang khong hop le" });
+      return res.status(400).json({ message: "Giỏ hàng không hợp lệ" });
     }
 
     const demandByFoodId = normalizedItems.reduce((map, item) => {
@@ -123,7 +123,7 @@ router.post("/", requireAuth, async (req, res) => {
     );
 
     if (foods.length !== uniqueFoodIds.length) {
-      return res.status(400).json({ message: "Mot so mon an khong con kha dung" });
+      return res.status(400).json({ message: "Mot so món ăn không cón kha dung" });
     }
 
     const foodMap = new Map(foods.map(food => [Number(food.id), food]));
@@ -133,7 +133,7 @@ router.post("/", requireAuth, async (req, res) => {
     });
 
     if (outOfStockFood) {
-      return res.status(400).json({ message: "Mot so mon an khong du so luong ton kho" });
+      return res.status(400).json({ message: "Một số món ăn không đủ số lượng tồn kho" });
     }
 
     const orderItems = normalizedItems.map(item => {
@@ -243,7 +243,7 @@ router.post("/", requireAuth, async (req, res) => {
     await connection.commit();
 
     res.status(201).json({
-      message: normalizedPaymentMethod === "qr" ? "Da tao giao dich thanh toan QR" : "Dat hang thanh cong",
+      message: normalizedPaymentMethod === "qr" ? "Đã tạo giao dich thanh toan QR" : "Đặt hàng thành công",
       order: {
         id: orderId,
         status: orderStatus,
@@ -260,8 +260,8 @@ router.post("/", requireAuth, async (req, res) => {
     const status = error.status || (error.message === "Inventory update failed" ? 400 : 500);
     res.status(status).json({
       message: error.message === "Inventory update failed"
-        ? "Mot so mon an khong du so luong ton kho"
-        : error.message || "Loi server"
+        ? "Một số món ăn không đủ số lượng tồn kho"
+        : error.message || "Lỗi server"
     });
   } finally {
     connection.release();
@@ -275,7 +275,7 @@ router.post("/:id/payment/cancel", requireAuth, async (req, res) => {
     const orderId = Number(req.params.id);
 
     if (!isPositiveInteger(orderId)) {
-      return res.status(400).json({ message: "Ma don hang khong hop le" });
+      return res.status(400).json({ message: "Ma đơn hàng không hợp lệ" });
     }
 
     await connection.beginTransaction();
@@ -291,19 +291,19 @@ router.post("/:id/payment/cancel", requireAuth, async (req, res) => {
 
     if (orders.length === 0) {
       await connection.rollback();
-      return res.status(404).json({ message: "Khong tim thay giao dich QR" });
+      return res.status(404).json({ message: "Không tìm thấy giao dich QR" });
     }
 
     const order = orders[0];
 
     if (order.payment_status === "paid") {
       await connection.rollback();
-      return res.status(400).json({ message: "Don hang da thanh toan, khong the huy" });
+      return res.status(400).json({ message: "Đơn hàng da thanh toan, không thể huy" });
     }
 
     if (order.status === "cancelled") {
       await connection.rollback();
-      return res.json({ message: "Giao dich da duoc huy truoc do" });
+      return res.json({ message: "Giao dich đã được huy truoc do" });
     }
 
     const [items] = await connection.query(
@@ -328,11 +328,11 @@ router.post("/:id/payment/cancel", requireAuth, async (req, res) => {
     );
 
     await connection.commit();
-    res.json({ message: "Da huy giao dich thanh toan QR" });
+    res.json({ message: "Đã hủy giao dich thanh toan QR" });
   } catch (error) {
     await connection.rollback();
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   } finally {
     connection.release();
   }
@@ -380,7 +380,7 @@ router.get("/", requireAuth, async (req, res) => {
     })));
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -389,7 +389,7 @@ router.get("/:id", requireAuth, async (req, res) => {
     const orderId = Number(req.params.id);
 
     if (!isPositiveInteger(orderId)) {
-      return res.status(400).json({ message: "Ma don hang khong hop le" });
+      return res.status(400).json({ message: "Ma đơn hàng không hợp lệ" });
     }
 
     const [orders] = await db.query(
@@ -400,7 +400,7 @@ router.get("/:id", requireAuth, async (req, res) => {
     );
 
     if (orders.length === 0) {
-      return res.status(404).json({ message: "Khong tim thay don hang" });
+      return res.status(404).json({ message: "Không tìm thấy đơn hàng" });
     }
 
     const [items] = await db.query(
@@ -417,7 +417,7 @@ router.get("/:id", requireAuth, async (req, res) => {
     });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 

@@ -48,7 +48,7 @@ app.use(express.urlencoded({ extended: true, limit: "8mb" }));
 app.use((error, req, res, next) => {
   if (error?.type === "entity.too.large") {
     return res.status(413).json({
-      message: "Anh qua lon. Vui long chon anh nho hon 1.5MB."
+      message: "Ảnh quá lớn. Vui lòng chọn anh nhỏ hơn 1.5MB."
     });
   }
 
@@ -63,7 +63,7 @@ app.use("/api/advertisements", require("./routes/advertisements"));
 app.use("/api/admin", require("./routes/admin"));
 
 app.get("/", (req, res) => {
-  res.send("FoodHub API dang chay");
+  res.send("FoodHub API đang chạy");
 });
 
 app.get("/api/health", (req, res) => {
@@ -79,7 +79,7 @@ async function ensureSchema() {
     console.log("Added announcements.expires_at column");
   } catch (error) {
     if (error.code !== "ER_DUP_FIELDNAME") {
-      console.error("Schema check failed:", error.message);
+      console.error("Schemã check failed:", error.message);
     }
   }
 
@@ -88,7 +88,7 @@ async function ensureSchema() {
     console.log("Added foods.stock_quantity column");
   } catch (error) {
     if (error.code !== "ER_DUP_FIELDNAME") {
-      console.error("Food stock schema check failed:", error.message);
+      console.error("Food stock schemã check failed:", error.message);
     }
   }
 
@@ -97,7 +97,7 @@ async function ensureSchema() {
     console.log("Added users.phone column");
   } catch (error) {
     if (error.code !== "ER_DUP_FIELDNAME") {
-      console.error("User contact schema check failed:", error.message);
+      console.error("User contact schemã check failed:", error.message);
     }
   }
 
@@ -106,7 +106,7 @@ async function ensureSchema() {
     console.log("Added users.address column");
   } catch (error) {
     if (error.code !== "ER_DUP_FIELDNAME") {
-      console.error("User address schema check failed:", error.message);
+      console.error("User address schemã check failed:", error.message);
     }
   }
 
@@ -115,7 +115,7 @@ async function ensureSchema() {
     console.log("Added users.username column");
   } catch (error) {
     if (error.code !== "ER_DUP_FIELDNAME") {
-      console.error("User username schema check failed:", error.message);
+      console.error("User username schemã check failed:", error.message);
     }
   }
 
@@ -133,7 +133,7 @@ async function ensureSchema() {
     console.log("Added users.avatar column");
   } catch (error) {
     if (error.code !== "ER_DUP_FIELDNAME") {
-      console.error("User avatar schema check failed:", error.message);
+      console.error("User avatar schemã check failed:", error.message);
     }
   }
 
@@ -190,7 +190,7 @@ async function ensureSchema() {
       WHERE provider IN ('google', 'facebook')
     `);
   } catch (error) {
-    console.error("Auth provider schema check failed:", error.message);
+    console.error("Auth provider schemã check failed:", error.message);
   }
 
   try {
@@ -212,7 +212,7 @@ async function ensureSchema() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
   } catch (error) {
-    console.error("User address book schema check failed:", error.message);
+    console.error("User address book schemã check failed:", error.message);
   }
 
   try {
@@ -240,18 +240,18 @@ async function ensureSchema() {
       INSERT IGNORE INTO discounts
         (id, code, name, discount_type, discount_value, min_order, max_discount, usage_limit, is_active)
       VALUES
-        (1, 'FOODHUB10', 'Giam 10% cho don tu 100.000d', 'percent', 10, 100000, 30000, 100, 1),
-        (2, 'FREESHIP20', 'Giam 20.000d cho don tu 150.000d', 'fixed', 20000, 150000, NULL, NULL, 1)
+        (1, 'FOODHUB10', 'Giam 10% cho don từ 100.000d', 'percent', 10, 100000, 30000, 100, 1),
+        (2, 'FREESHIP20', 'Giam 20.000d cho don từ 150.000d', 'fixed', 20000, 150000, NULL, NULL, 1)
     `);
   } catch (error) {
-    console.error("Discount schema check failed:", error.message);
+    console.error("Discount schemã check failed:", error.message);
   }
 
   try {
     await db.query("ALTER TABLE orders ADD COLUMN payment_method VARCHAR(30) NOT NULL DEFAULT 'cod'");
   } catch (error) {
     if (error.code !== "ER_DUP_FIELDNAME") {
-      console.error("Order payment method schema check failed:", error.message);
+      console.error("Order payment method schemã check failed:", error.message);
     }
   }
 
@@ -259,7 +259,7 @@ async function ensureSchema() {
     await db.query("ALTER TABLE orders ADD COLUMN payment_status VARCHAR(30) NOT NULL DEFAULT 'unpaid'");
   } catch (error) {
     if (error.code !== "ER_DUP_FIELDNAME") {
-      console.error("Order payment status schema check failed:", error.message);
+      console.error("Order payment status schemã check failed:", error.message);
     }
   }
 
@@ -289,7 +289,7 @@ async function ensureSchema() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
   } catch (error) {
-    console.error("Payment session schema check failed:", error.message);
+    console.error("Payment session schemã check failed:", error.message);
   }
 
   try {
@@ -313,7 +313,7 @@ async function ensureSchema() {
     `);
     await db.query("ALTER TABLE advertisements MODIFY image LONGTEXT NOT NULL");
   } catch (error) {
-    console.error("Advertisement schema check failed:", error.message);
+    console.error("Advertisement schemã check failed:", error.message);
   }
 }
 

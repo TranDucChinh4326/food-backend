@@ -48,12 +48,12 @@ async function hydrateUser(req, res) {
   );
 
   if (users.length === 0) {
-    res.status(401).json({ message: "Tai khoan khong ton tai" });
+    res.status(401).json({ message: "Tài khoản không tồn tại" });
     return false;
   }
 
   if (!users[0].is_active) {
-    res.status(403).json({ message: "Tai khoan da bi khoa" });
+    res.status(403).json({ message: "Tài khoản đã bị khóa" });
     return false;
   }
 
@@ -80,14 +80,14 @@ function requireAuth(req, res, next) {
   const token = getToken(req);
 
   if (!token) {
-    return res.status(401).json({ message: "Vui long dang nhap" });
+    return res.status(401).json({ message: "Vui lòng đăng nhập" });
   }
 
   try {
     req.user = jwt.verify(token, JWT_SECRET);
     next();
   } catch (error) {
-    res.status(401).json({ message: "Phien dang nhap khong hop le" });
+    res.status(401).json({ message: "Phiên đăng nhập không hợp lệ" });
   }
 }
 
@@ -98,13 +98,13 @@ function requireAdmin(req, res, next) {
       if (!ok) return;
 
       if (!isAdmin(req.user)) {
-        return res.status(403).json({ message: "Ban khong co quyen quan tri" });
+        return res.status(403).json({ message: "Bạn không có quyền quản trị" });
       }
 
       next();
     } catch (error) {
       console.error(error);
-      res.status(500).json({ message: "Loi server" });
+      res.status(500).json({ message: "Lỗi server" });
     }
   });
 }
@@ -117,13 +117,13 @@ function requirePermission(permission) {
         if (!ok) return;
 
         if (!hasPermission(req.user, permission)) {
-          return res.status(403).json({ message: "Ban khong co quyen thuc hien thao tac nay" });
+          return res.status(403).json({ message: "Bạn không có quyền thực hiện thao tác này" });
         }
 
         next();
       } catch (error) {
         console.error(error);
-        res.status(500).json({ message: "Loi server" });
+        res.status(500).json({ message: "Lỗi server" });
       }
     });
   };
@@ -137,13 +137,13 @@ function requireAnyPermission(permissions) {
         if (!ok) return;
 
         if (!permissions.some(permission => hasPermission(req.user, permission))) {
-          return res.status(403).json({ message: "Ban khong co quyen thuc hien thao tac nay" });
+          return res.status(403).json({ message: "Bạn không có quyền thực hiện thao tác này" });
         }
 
         next();
       } catch (error) {
         console.error(error);
-        res.status(500).json({ message: "Loi server" });
+        res.status(500).json({ message: "Lỗi server" });
       }
     });
   };

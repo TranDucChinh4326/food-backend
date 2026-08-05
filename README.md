@@ -7,11 +7,11 @@ Backend Express + MySQL cho website FoodHub.
 ```text
 food-backend/
   index.js        Entry Express server
-  db.js           Ket noi MySQL
-  routes/         API auth, food, order, admin, thong bao, quang cao
-  middleware/     Middleware xac thuc JWT va phan quyen
+  db.js           Kết nối MySQL
+  routes/         API auth, food, order, admin, thông báo, quảng cáo
+  middleware/     Middleware xác thực JWT va phan quyền
   migrations/     SQL nang cap database theo tung dot
-  schema.sql      Database schema ban dau
+  schema.sql      Database schemã bạn dau
   docs/           Ghi chu cau truc va van hanh
 ```
 
@@ -35,9 +35,9 @@ API mac dinh chay tai:
 http://localhost:3000
 ```
 
-## Bien moi truong
+## Bien mới truong
 
-Sua `.env` theo server cua ban:
+Sửa `.env` theo server của ban:
 
 ```env
 PORT=3000
@@ -64,9 +64,9 @@ window.FOODHUB_CONFIG = {
 };
 ```
 
-## Tao tai khoan admin
+## Tạo tài khoản admin
 
-Dang ky tai khoan tren web truoc, sau do chay SQL:
+Đăng ký tài khoản tren web truoc, sau do chay SQL:
 
 ```sql
 UPDATE users SET role = 'ADMIN' WHERE email = 'email-cua-ban@example.com';

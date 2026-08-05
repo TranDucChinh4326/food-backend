@@ -23,7 +23,7 @@ const avatarUpload = multer({
   },
   fileFilter(req, file, callback) {
     if (!file.mimetype || !file.mimetype.startsWith("image/")) {
-      callback(new Error("Vui long chon tep hinh anh"));
+      callback(new Error("Vui lòng chọn tệp hình ảnh"));
       return;
     }
 
@@ -196,19 +196,19 @@ async function sendVerificationEmail(email, fullname, verificationUrl) {
     body: JSON.stringify({
       from: process.env.MAIL_FROM,
       to: email,
-      subject: "Xac thuc tai khoan FoodHub",
+      subject: "Xác thực tài khoản FoodHub",
       html: `
         <p>Chao ${String(fullname || "ban")},</p>
-        <p>Bam vao lien ket ben duoi de xac thuc tai khoan FoodHub:</p>
+        <p>Bam vao liên kết ben duoi de xác thực tài khoản FoodHub:</p>
         <p><a href="${verificationUrl}">${verificationUrl}</a></p>
-        <p>Lien ket het han sau 30 phut.</p>
+        <p>Liên kết hết hạn sau 30 phut.</p>
       `
     })
   });
 
   if (!response.ok) {
     const errorBody = await response.text();
-    throw new Error(`Khong gui duoc email xac thuc: ${errorBody}`);
+    throw new Error(`Không gửi được email xác thực: ${errorBody}`);
   }
 
   return true;
@@ -233,13 +233,13 @@ async function createAuthProvider(userId, { provider, providerId, email }) {
   const normalizedEmail = normalizeEmail(email);
 
   if (!["local", "google", "facebook"].includes(normalizedProvider)) {
-    const error = new Error("Phuong thuc dang nhap khong hop le");
+    const error = new Error("Phuong thuc đăng nhập không hợp lệ");
     error.status = 400;
     throw error;
   }
 
   if (normalizedProvider !== "local" && !normalizedProviderId) {
-    const error = new Error("Thieu ma tai khoan nha cung cap");
+    const error = new Error("Thiếu mã tài khoản nhà cung cấp");
     error.status = 400;
     throw error;
   }
@@ -259,7 +259,7 @@ async function linkSocialAccount(userId, { email, provider, providerId }) {
   const normalizedEmail = normalizeEmail(email);
 
   if (!["google", "facebook"].includes(normalizedProvider)) {
-    const error = new Error("Nha cung cap social khong hop le");
+    const error = new Error("Nhà cung cấp social không hợp lệ");
     error.status = 400;
     throw error;
   }
@@ -270,7 +270,7 @@ async function linkSocialAccount(userId, { email, provider, providerId }) {
   );
 
   if (linkedAccounts.length > 0 && Number(linkedAccounts[0].user_id) !== Number(userId)) {
-    const error = new Error("Tai khoan Google/Facebook nay da lien ket voi tai khoan khac");
+    const error = new Error("Tài khoản Google/Facebook này da liên kết voi tài khoản khac");
     error.status = 400;
     throw error;
   }
@@ -305,7 +305,7 @@ async function getSocialLoginUser({ email, provider, providerId, allowEmailFallb
   let normalizedEmail = normalizeEmail(email);
 
   if (!normalizedProviderId) {
-    const error = new Error("Thieu ma tai khoan nha cung cap");
+    const error = new Error("Thiếu mã tài khoản nhà cung cấp");
     error.status = 400;
     throw error;
   }
@@ -315,7 +315,7 @@ async function getSocialLoginUser({ email, provider, providerId, allowEmailFallb
   }
 
   if (!normalizedEmail) {
-    const error = new Error("Tai khoan social chua cap quyen email");
+    const error = new Error("Tài khoản social chưa cấp quyền email");
     error.status = 400;
     throw error;
   }
@@ -329,7 +329,7 @@ async function getSocialLoginUser({ email, provider, providerId, allowEmailFallb
   const [users] = await db.query("SELECT * FROM users WHERE email = ?", [normalizedEmail]);
 
   if (users.length > 0) {
-    const error = new Error("Email nay da co tai khoan. Vui long dang nhap bang username/password truoc, sau do vao trang tai khoan de lien ket Google hoac Facebook.");
+    const error = new Error("Email này da co tài khoản. Vui lòng đăng nhập bang username/password truoc, sau do vao trang tài khoản de liên kết Google hoặc Facebook.");
     error.status = 409;
     throw error;
   }
@@ -341,7 +341,7 @@ async function unlinkSocialAccount(userId, provider) {
   const normalizedProvider = String(provider || "").trim().toLowerCase();
 
   if (!["google", "facebook"].includes(normalizedProvider)) {
-    const error = new Error("Nha cung cap social khong hop le");
+    const error = new Error("Nhà cung cấp social không hợp lệ");
     error.status = 400;
     throw error;
   }
@@ -349,7 +349,7 @@ async function unlinkSocialAccount(userId, provider) {
   const providerCount = await getLoginProviderCount(userId);
 
   if (providerCount <= 1) {
-    const error = new Error("Khong the huy lien ket vi tai khoan phai con it nhat mot phuong thuc dang nhap khac");
+    const error = new Error("Không thể huy liên kết vi tài khoản phai con it nhat mot phuong thuc đăng nhập khac");
     error.status = 400;
     throw error;
   }
@@ -360,7 +360,7 @@ async function unlinkSocialAccount(userId, provider) {
   );
 
   if (result.affectedRows === 0) {
-    const error = new Error("Tai khoan chua lien ket phuong thuc nay");
+    const error = new Error("Tài khoản chưa liên kết phuong thuc này");
     error.status = 404;
     throw error;
   }
@@ -406,19 +406,19 @@ async function createLocalUser({ username, email, password, fullname }) {
   const normalizedUsername = normalizeUsername(username);
 
   if (!normalizedUsername || !normalizedEmail || !password) {
-    const error = new Error("Vui long nhap username, email va mat khau");
+    const error = new Error("Vui lòng nhập username, email va mật khẩu");
     error.status = 400;
     throw error;
   }
 
   if (!/^[a-z0-9._-]{3,40}$/.test(normalizedUsername)) {
-    const error = new Error("Username chi gom chu thuong, so, dau cham, gach ngang hoac gach duoi va tu 3-40 ky tu");
+    const error = new Error("Username chi gom chu thuong, so, dau cham, gach ngang hoặc gach duoi va từ 3-40 ky tu");
     error.status = 400;
     throw error;
   }
 
   if (password.length < 6) {
-    const error = new Error("Mat khau toi thieu 6 ky tu");
+    const error = new Error("Mật khẩu tối thiểu 6 ky tu");
     error.status = 400;
     throw error;
   }
@@ -429,7 +429,7 @@ async function createLocalUser({ username, email, password, fullname }) {
   );
 
   if (oldUsers.length > 0) {
-    const error = new Error("Username hoac email da ton tai");
+    const error = new Error("Username hoặc email da tồn tại");
     error.status = 400;
     throw error;
   }
@@ -454,7 +454,7 @@ function sendAuthResponse(res, user) {
   const responseUser = publicUser(user);
 
   res.json({
-    message: "Dang nhap thanh cong",
+    message: "Đăng nhập thành công",
     token,
     requiresAccountSetup: responseUser.requiresAccountSetup,
     user: responseUser
@@ -470,7 +470,7 @@ async function getGoogleProfile(accessToken) {
   const profile = await response.json();
 
   if (!response.ok || !profile.email) {
-    const error = new Error("Khong xac thuc duoc tai khoan Google");
+    const error = new Error("Không xác thực được tài khoản Google");
     error.status = 401;
     throw error;
   }
@@ -494,7 +494,7 @@ async function getFacebookProfile(accessToken) {
   const profile = await response.json();
 
   if (!response.ok || !profile.id) {
-    const error = new Error("Khong xac thuc duoc tai khoan Facebook");
+    const error = new Error("Không xác thực được tài khoản Facebook");
     error.status = 401;
     throw error;
   }
@@ -518,14 +518,14 @@ async function getSocialProfile(provider, accessToken) {
     return getFacebookProfile(accessToken);
   }
 
-  const error = new Error("Nha cung cap social khong hop le");
+  const error = new Error("Nhà cung cấp social không hợp lệ");
   error.status = 400;
   throw error;
 }
 
 router.post("/register", async (req, res) => {
   res.status(410).json({
-    message: "Dang ky thu cong da tat. Vui long xac thuc bang Google hoac Facebook truoc."
+    message: "Đăng ký thu cong da tat. Vui lòng xác thực bằng Google hoặc Facebook truoc."
   });
 });
 
@@ -534,7 +534,7 @@ router.get("/verify-email", async (req, res) => {
     const token = String(req.query.token || "").trim();
 
     if (!token) {
-      return res.status(400).json({ message: "Thieu ma xac thuc" });
+      return res.status(400).json({ message: "Thiếu mã xác thực" });
     }
 
     const [tokens] = await db.query(
@@ -548,7 +548,7 @@ router.get("/verify-email", async (req, res) => {
     );
 
     if (tokens.length === 0) {
-      return res.status(400).json({ message: "Link xac thuc khong hop le hoac da het han" });
+      return res.status(400).json({ message: "Link xác thực không hợp lệ hoặc da hết hạn" });
     }
 
     await db.query(
@@ -559,10 +559,10 @@ router.get("/verify-email", async (req, res) => {
       tokens[0].id
     ]);
 
-    res.json({ message: "Xac thuc email thanh cong. Ban co the dang nhap." });
+    res.json({ message: "Xác thực email thành công. Bạn co the đăng nhập." });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -571,7 +571,7 @@ router.post("/resend-verification", async (req, res) => {
     const normalizedEmail = normalizeEmail(req.body.email);
 
     if (!normalizedEmail) {
-      return res.status(400).json({ message: "Vui long nhap email" });
+      return res.status(400).json({ message: "Vui lòng nhập email" });
     }
 
     const [users] = await db.query(
@@ -580,11 +580,11 @@ router.post("/resend-verification", async (req, res) => {
     );
 
     if (users.length === 0) {
-      return res.status(404).json({ message: "Khong tim thay tai khoan" });
+      return res.status(404).json({ message: "Không tìm thấy tài khoản" });
     }
 
     if (users[0].email_verified) {
-      return res.json({ message: "Email nay da duoc xac thuc" });
+      return res.json({ message: "Email này đã được xác thực" });
     }
 
     const verificationUrl = await createEmailVerification(users[0].id);
@@ -598,13 +598,13 @@ router.post("/resend-verification", async (req, res) => {
 
     res.json({
       message: emailSent
-        ? "Da gui lai email xac thuc."
-        : "Da tao lai link xac thuc.",
+        ? "Đã gửi lai email xác thực."
+        : "Đã tạo lai link xác thực.",
       verificationUrl: shouldExposeVerificationUrl(emailSent) ? verificationUrl : undefined
     });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -614,17 +614,17 @@ router.post("/login", async (req, res) => {
     const loginValue = login || username || email;
 
     if (!loginValue || !password) {
-      return res.status(400).json({ message: "Vui long nhap username/email va mat khau" });
+      return res.status(400).json({ message: "Vui lòng nhập username/email va mật khẩu" });
     }
 
     const user = await getUserByLogin(loginValue);
 
     if (!user) {
-      return res.status(400).json({ message: "Username/email hoac mat khau khong dung" });
+      return res.status(400).json({ message: "Username/email hoặc mật khẩu không đúng" });
     }
 
     if (!user.is_active) {
-      return res.status(403).json({ message: "Tai khoan da bi khoa" });
+      return res.status(403).json({ message: "Tài khoản đã bị khóa" });
     }
 
     const isMatch = user.password
@@ -632,7 +632,7 @@ router.post("/login", async (req, res) => {
       : false;
 
     if (!isMatch) {
-      return res.status(400).json({ message: "Username/email hoac mat khau khong dung" });
+      return res.status(400).json({ message: "Username/email hoặc mật khẩu không đúng" });
     }
 
     const isAdmin = String(user.role || "").toUpperCase() === "ADMIN";
@@ -649,8 +649,8 @@ router.post("/login", async (req, res) => {
 
       return res.status(403).json({
         message: emailSent
-          ? "Email chua xac thuc. Minh da gui lai email xac thuc cho ban."
-          : "Email chua xac thuc. Hay bam link xac thuc de kich hoat tai khoan.",
+          ? "Email chưa xác thực. Minh đã gửi lai email xác thực cho ban."
+          : "Email chưa xác thực. Hay bam link xác thực de kích hoạt tài khoản.",
         verificationUrl: shouldExposeVerificationUrl(emailSent) ? verificationUrl : undefined
       });
     }
@@ -658,7 +658,7 @@ router.post("/login", async (req, res) => {
     sendAuthResponse(res, user);
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -667,7 +667,7 @@ router.post("/google", async (req, res) => {
     const { accessToken } = req.body;
 
     if (!accessToken) {
-      return res.status(400).json({ message: "Thieu Google access token" });
+      return res.status(400).json({ message: "Thiếu Google access token" });
     }
 
     const profile = await getSocialProfile("google", accessToken);
@@ -675,7 +675,7 @@ router.post("/google", async (req, res) => {
 
     if (!user) {
       return res.status(202).json({
-        message: "Da xac thuc Google. Vui long tao username va mat khau de hoan tat tai khoan.",
+        message: "Da xác thực Google. Vui lòng tạo username va mật khẩu de hoàn tất tài khoản.",
         requiresAccountSetup: true,
         provider: profile.provider,
         providerEmail: profile.email,
@@ -687,7 +687,7 @@ router.post("/google", async (req, res) => {
     sendAuthResponse(res, user);
   } catch (error) {
     console.error(error);
-    res.status(error.status || 500).json({ message: error.message || "Loi server" });
+    res.status(error.status || 500).json({ message: error.message || "Lỗi server" });
   }
 });
 
@@ -696,7 +696,7 @@ router.post("/facebook", async (req, res) => {
     const { accessToken } = req.body;
 
     if (!accessToken) {
-      return res.status(400).json({ message: "Thieu Facebook access token" });
+      return res.status(400).json({ message: "Thiếu Facebook access token" });
     }
 
     const profile = await getSocialProfile("facebook", accessToken);
@@ -704,7 +704,7 @@ router.post("/facebook", async (req, res) => {
 
     if (!user) {
       return res.status(202).json({
-        message: "Da xac thuc Facebook. Vui long tao username va mat khau de hoan tat tai khoan.",
+        message: "Da xác thực Facebook. Vui lòng tạo username va mật khẩu de hoàn tất tài khoản.",
         requiresAccountSetup: true,
         provider: profile.provider,
         providerEmail: profile.email,
@@ -716,7 +716,7 @@ router.post("/facebook", async (req, res) => {
     sendAuthResponse(res, user);
   } catch (error) {
     console.error(error);
-    res.status(error.status || 500).json({ message: error.message || "Loi server" });
+    res.status(error.status || 500).json({ message: error.message || "Lỗi server" });
   }
 });
 
@@ -726,7 +726,7 @@ router.post("/social/setup/:provider", async (req, res) => {
     const { accessToken, username, fullname, password } = req.body;
 
     if (!accessToken) {
-      return res.status(400).json({ message: "Thieu access token" });
+      return res.status(400).json({ message: "Thiếu access token" });
     }
 
     const profile = await getSocialProfile(provider, accessToken);
@@ -741,7 +741,7 @@ router.post("/social/setup/:provider", async (req, res) => {
 
     if (emailUsers.length > 0) {
       return res.status(409).json({
-        message: "Email nay da co tai khoan. Vui long dang nhap tai khoan do roi lien ket Google/Facebook trong trang tai khoan."
+        message: "Email này da co tài khoản. Vui lòng đăng nhập tài khoản do roi liên kết Google/Facebook trong trang tài khoản."
       });
     }
 
@@ -766,7 +766,7 @@ router.post("/social/setup/:provider", async (req, res) => {
     sendAuthResponse(res, users[0]);
   } catch (error) {
     console.error(error);
-    res.status(error.status || 500).json({ message: error.message || "Loi server" });
+    res.status(error.status || 500).json({ message: error.message || "Lỗi server" });
   }
 });
 
@@ -777,7 +777,7 @@ router.get("/social/accounts", requireAuth, async (req, res) => {
     res.json({ accounts });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -787,7 +787,7 @@ router.post("/social/link/:provider", requireAuth, async (req, res) => {
     const { accessToken } = req.body;
 
     if (!accessToken) {
-      return res.status(400).json({ message: "Thieu access token" });
+      return res.status(400).json({ message: "Thiếu access token" });
     }
 
     const profile = await getSocialProfile(provider, accessToken);
@@ -795,10 +795,10 @@ router.post("/social/link/:provider", requireAuth, async (req, res) => {
 
     const accounts = await listAuthProviders(req.user.id);
 
-    res.json({ message: "Lien ket tai khoan thanh cong", accounts });
+    res.json({ message: "Liên kết tài khoản thành công", accounts });
   } catch (error) {
     console.error(error);
-    res.status(error.status || 500).json({ message: error.message || "Loi server" });
+    res.status(error.status || 500).json({ message: error.message || "Lỗi server" });
   }
 });
 
@@ -807,10 +807,10 @@ router.delete("/social/unlink/:provider", requireAuth, async (req, res) => {
     await unlinkSocialAccount(req.user.id, req.params.provider);
     const accounts = await listAuthProviders(req.user.id);
 
-    res.json({ message: "Huy lien ket tai khoan thanh cong", accounts });
+    res.json({ message: "Huy liên kết tài khoản thành công", accounts });
   } catch (error) {
     console.error(error);
-    res.status(error.status || 500).json({ message: error.message || "Loi server" });
+    res.status(error.status || 500).json({ message: error.message || "Lỗi server" });
   }
 });
 
@@ -827,7 +827,7 @@ router.get("/addresses", requireAuth, async (req, res) => {
     res.json({ addresses });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -840,7 +840,7 @@ router.post("/addresses", requireAuth, async (req, res) => {
     const isDefault = Boolean(req.body.isDefault);
 
     if (!address) {
-      return res.status(400).json({ message: "Vui long nhap dia chi giao hang" });
+      return res.status(400).json({ message: "Vui lòng nhập địa chỉ giao hàng" });
     }
 
     if (isDefault) {
@@ -860,10 +860,10 @@ router.post("/addresses", requireAuth, async (req, res) => {
       await db.query("UPDATE users SET address = ? WHERE id = ?", [address, req.user.id]);
     }
 
-    res.status(201).json({ message: "Da them dia chi giao hang", id: result.insertId });
+    res.status(201).json({ message: "Đã thêm địa chỉ giao hàng", id: result.insertId });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -877,11 +877,11 @@ router.put("/addresses/:id", requireAuth, async (req, res) => {
     const isDefault = Boolean(req.body.isDefault);
 
     if (!Number.isInteger(addressId) || addressId <= 0) {
-      return res.status(400).json({ message: "Ma dia chi khong hop le" });
+      return res.status(400).json({ message: "Ma địa chỉ không hợp lệ" });
     }
 
     if (!address) {
-      return res.status(400).json({ message: "Vui long nhap dia chi giao hang" });
+      return res.status(400).json({ message: "Vui lòng nhập địa chỉ giao hàng" });
     }
 
     if (isDefault) {
@@ -896,17 +896,17 @@ router.put("/addresses/:id", requireAuth, async (req, res) => {
     );
 
     if (result.affectedRows === 0) {
-      return res.status(404).json({ message: "Khong tim thay dia chi" });
+      return res.status(404).json({ message: "Không tìm thấy địa chỉ" });
     }
 
     if (isDefault) {
       await db.query("UPDATE users SET address = ? WHERE id = ?", [address, req.user.id]);
     }
 
-    res.json({ message: "Da cap nhat dia chi giao hang" });
+    res.json({ message: "Da cập nhật địa chỉ giao hàng" });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -915,7 +915,7 @@ router.delete("/addresses/:id", requireAuth, async (req, res) => {
     const addressId = Number(req.params.id);
 
     if (!Number.isInteger(addressId) || addressId <= 0) {
-      return res.status(400).json({ message: "Ma dia chi khong hop le" });
+      return res.status(400).json({ message: "Ma địa chỉ không hợp lệ" });
     }
 
     const [addresses] = await db.query(
@@ -924,7 +924,7 @@ router.delete("/addresses/:id", requireAuth, async (req, res) => {
     );
 
     if (addresses.length === 0) {
-      return res.status(404).json({ message: "Khong tim thay dia chi" });
+      return res.status(404).json({ message: "Không tìm thấy địa chỉ" });
     }
 
     await db.query("DELETE FROM user_addresses WHERE id = ? AND user_id = ?", [addressId, req.user.id]);
@@ -943,10 +943,10 @@ router.delete("/addresses/:id", requireAuth, async (req, res) => {
       }
     }
 
-    res.json({ message: "Da xoa dia chi giao hang" });
+    res.json({ message: "Đã xóa địa chỉ giao hàng" });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -958,13 +958,13 @@ router.get("/me", requireAuth, async (req, res) => {
     );
 
     if (users.length === 0) {
-      return res.status(404).json({ message: "Khong tim thay nguoi dung" });
+      return res.status(404).json({ message: "Không tìm thấy người dùng" });
     }
 
     res.json({ user: users[0] });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -980,19 +980,19 @@ router.put("/me", requireAuth, async (req, res) => {
     const normalizedAvatar = String(avatar || "").trim();
 
     if (!normalizedUsername || !fullname || !normalizedEmail) {
-      return res.status(400).json({ message: "Vui long nhap username, ho ten va email" });
+      return res.status(400).json({ message: "Vui lòng nhập username, họ tên va email" });
     }
 
     if (!/^[a-z0-9._-]{3,40}$/.test(normalizedUsername)) {
-      return res.status(400).json({ message: "Username chi gom chu thuong, so, dau cham, gach ngang hoac gach duoi va tu 3-40 ky tu" });
+      return res.status(400).json({ message: "Username chi gom chu thuong, so, dau cham, gach ngang hoặc gach duoi va từ 3-40 ky tu" });
     }
 
     if (normalizedAvatar && !/^https?:\/\//i.test(normalizedAvatar) && !/^data:image\/(png|jpe?g|webp);base64,/i.test(normalizedAvatar)) {
-      return res.status(400).json({ message: "Anh dai dien khong hop le" });
+      return res.status(400).json({ message: "Ảnh đại diện không hợp lệ" });
     }
 
     if (normalizedAvatar.length > 500000) {
-      return res.status(413).json({ message: "Anh dai dien qua lon. Vui long chon anh nho hon." });
+      return res.status(413).json({ message: "Ảnh đại diện qua lon. Vui lòng chọn anh nhỏ hơn." });
     }
 
     const [oldUsernames] = await db.query(
@@ -1001,7 +1001,7 @@ router.put("/me", requireAuth, async (req, res) => {
     );
 
     if (oldUsernames.length > 0) {
-      return res.status(400).json({ message: "Username da duoc tai khoan khac su dung" });
+      return res.status(400).json({ message: "Username đã được tài khoản khác sử dụng" });
     }
 
     const [oldUsers] = await db.query(
@@ -1010,7 +1010,7 @@ router.put("/me", requireAuth, async (req, res) => {
     );
 
     if (oldUsers.length > 0) {
-      return res.status(400).json({ message: "Email da duoc tai khoan khac su dung" });
+      return res.status(400).json({ message: "Email đã được tài khoản khác sử dụng" });
     }
 
     const [currentUsers] = await db.query("SELECT email FROM users WHERE id = ?", [req.user.id]);
@@ -1067,14 +1067,14 @@ router.put("/me", requireAuth, async (req, res) => {
 
     res.json({
       message: emailChanged
-       ? "Da cap nhat email. Vui long xac thuc email moi."
-       : "Cap nhat tai khoan thanh cong",
+       ? "Da cập nhật email. Vui lòng xác thực email mới."
+       : "Cập nhật tài khoản thành công",
       user: users[0],
       verificationUrl: emailChanged && shouldExposeVerificationUrl(emailSent) ? verificationUrl : undefined
     });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -1084,14 +1084,14 @@ router.post("/avatar", requireAuth, (req, res) => {
       const isSizeError = error.code === "LIMIT_FILE_SIZE";
       return res.status(isSizeError ? 413 : 400).json({
         message: isSizeError
-          ? "Anh dai dien qua lon. Vui long chon anh nho hon 1.5MB."
-          : error.message || "Khong the tai anh dai dien"
+          ? "Ảnh đại diện qua lon. Vui lòng chọn anh nhỏ hơn 1.5MB."
+          : error.message || "Không thể tải ảnh đại diện"
       });
     }
 
     try {
       if (!req.file) {
-        return res.status(400).json({ message: "Vui long chon anh dai dien" });
+        return res.status(400).json({ message: "Vui lòng chọn ảnh đại diện" });
       }
 
       const avatarUrl = await saveAvatarFile(req, req.file);
@@ -1103,13 +1103,13 @@ router.post("/avatar", requireAuth, (req, res) => {
       );
 
       return res.json({
-        message: "Cap nhat anh dai dien thanh cong",
+        message: "Cập nhật ảnh đại diện thành công",
         avatar: avatarUrl,
         user: users[0]
       });
     } catch (uploadError) {
       console.error(uploadError);
-      return res.status(500).json({ message: "Khong the luu anh dai dien" });
+      return res.status(500).json({ message: "Không thể lưu ảnh đại diện" });
     }
   });
 });
@@ -1122,7 +1122,7 @@ router.get("/password-captcha", requireAuth, async (req, res) => {
 
   if (waitMs > 0) {
     return res.status(429).json({
-      message: `Vui long doi ${Math.ceil(waitMs / 1000)} giay de xin ma moi`,
+      message: `Vui lòng doi ${Math.ceil(waitMs / 1000)} giay de xin mã mới`,
       retryAfterSeconds: Math.ceil(waitMs / 1000)
     });
   }
@@ -1150,15 +1150,15 @@ router.put("/password", requireAuth, async (req, res) => {
     const { currentPassword, newPassword, confirmPassword, captchaAnswer, captchaId } = req.body;
 
     if (!newPassword) {
-      return res.status(400).json({ message: "Vui long nhap mat khau moi" });
+      return res.status(400).json({ message: "Vui lòng nhập mật khẩu mới" });
     }
 
     if (newPassword !== confirmPassword) {
-      return res.status(400).json({ message: "Mat khau moi nhap lai khong khop" });
+      return res.status(400).json({ message: "Mật khẩu mới nhập lai không khớp" });
     }
 
     if (newPassword.length < 6) {
-      return res.status(400).json({ message: "Mat khau moi toi thieu 6 ky tu" });
+      return res.status(400).json({ message: "Mật khẩu mới tối thiểu 6 ky tu" });
     }
 
     const [users] = await db.query(
@@ -1167,13 +1167,13 @@ router.put("/password", requireAuth, async (req, res) => {
     );
 
     if (users.length === 0) {
-      return res.status(404).json({ message: "Khong tim thay nguoi dung" });
+      return res.status(404).json({ message: "Không tìm thấy người dùng" });
     }
 
     const hasPasswordSet = Boolean(users[0].password_set) && Boolean(users[0].password);
 
     if (hasPasswordSet && !currentPassword) {
-      return res.status(400).json({ message: "Vui long nhap mat khau hien tai" });
+      return res.status(400).json({ message: "Vui lòng nhập mật khẩu hiện tại" });
     }
 
     const isMatch = hasPasswordSet
@@ -1181,7 +1181,7 @@ router.put("/password", requireAuth, async (req, res) => {
       : true;
 
     if (!isMatch) {
-      return res.status(400).json({ message: "Mat khau hien tai khong dung" });
+      return res.status(400).json({ message: "Mật khẩu hiện tại không đúng" });
     }
 
     cleanupPasswordCaptchas();
@@ -1195,7 +1195,7 @@ router.put("/password", requireAuth, async (req, res) => {
       || String(captchaAnswer).trim().toLowerCase() !== captcha.code
     ) {
       passwordCaptchaStore.delete(normalizedCaptchaId);
-      return res.status(400).json({ message: "Ma captcha khong dung" });
+      return res.status(400).json({ message: "Ma captcha không đúng" });
     }
 
     passwordCaptchaStore.delete(normalizedCaptchaId);
@@ -1205,10 +1205,10 @@ router.put("/password", requireAuth, async (req, res) => {
     await updatePasswordHash(req.user.id, hashedPassword);
     await ensureLocalProvider(req.user.id, users[0].email);
 
-    res.json({ message: hasPasswordSet ? "Doi mat khau thanh cong" : "Tao mat khau dang nhap thanh cong" });
+    res.json({ message: hasPasswordSet ? "Doi mật khẩu thành công" : "Tạo mật khẩu đăng nhập thành công" });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 

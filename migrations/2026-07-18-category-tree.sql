@@ -5,8 +5,8 @@ ALTER TABLE categories ADD COLUMN IF NOT EXISTS sort_order INT DEFAULT 0;
 ALTER TABLE categories ADD COLUMN IF NOT EXISTS is_active TINYINT DEFAULT 1;
 
 INSERT IGNORE INTO categories (id, name, slug, type, parent_id, sort_order, is_active) VALUES
-  (100, 'Do an', 'do-an', 'food', NULL, 1, 1),
-  (101, 'Nuoc uong', 'nuoc-uong', 'drink', NULL, 2, 1);
+  (100, 'Đồ ăn', 'do-an', 'food', NULL, 1, 1),
+  (101, 'Nước uống', 'nuoc-uong', 'drink', NULL, 2, 1);
 
 UPDATE categories
 SET name = 'Burger', slug = 'burger', type = 'food', parent_id = 100, sort_order = 10, is_active = 1
