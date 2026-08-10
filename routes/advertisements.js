@@ -1,10 +1,44 @@
 const express = require("express");
+const fs = require("fs");
+const path = require("path");
+const crypto = require("crypto");
+const multer = require("multer");
+const { v2: cloudinary } = require("cloudinary");
 const db = require("../db");
 const { PERMISSIONS, requirePermission } = require("../middleware/auth");
 
 const router = express.Router();
 const VALID_POSITIONS = new Set(["both", "left", "right"]);
 const VALID_STATUSES = new Set(["all", "active", "scheduled", "expired", "hidden"]);
+const AD_UPLOAD_DIR = path.join(__dirname, "..", "uploads", "advertisements");
+const hasCloudinaryConfig = Boolean(
+  process.env.CLOUDINARY_CLOUD_NAME
+    && process.env.CLOUDINARY_API_KEY
+    && process.env.CLOUDINARY_API_SECRET
+);
+
+if (hasCloudinaryConfig) {
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET
+  });
+}
+
+const adImageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 2 * 1024 * 1024
+  },
+  fileFilter(req, file, callback) {
+    if (!file.mimetype || !file.mimetype.startsWith("image/")) {
+      callback(new Error("Vui lòng chọn tệp hình ảnh"));
+      return;
+    }
+
+    callback(null, true);
+  }
+});
 
 function toMysqlDateTime(value) {
   if (!value) return null;
@@ -13,6 +47,52 @@ function toMysqlDateTime(value) {
   if (Number.isNaN(date.getTime())) return null;
 
   return date.toISOString().slice(0, 19).replace("T", " ");
+}
+
+function getApiBaseUrl(req) {
+  return (process.env.API_PUBLIC_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
+}
+
+function getImageExtension(mimetype) {
+  const extension = String(mimetype || "").split("/")[1] || "jpg";
+  return extension === "jpeg" ? "jpg" : extension.replace(/[^a-z0-9]/gi, "") || "jpg";
+}
+
+async function saveAdvertisementImageFile(req, file) {
+  if (hasCloudinaryConfig) {
+    const uploadResult = await new Promise((resolve, reject) => {
+      const stream = cloudinary.uploader.upload_stream(
+        {
+          folder: process.env.CLOUDINARY_AD_FOLDER || "foodhub/advertisements",
+          resource_type: "image",
+          transformation: [
+            { width: 420, height: 1200, crop: "limit" },
+            { quality: "auto", fetch_format: "auto" }
+          ]
+        },
+        (error, result) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+
+          resolve(result);
+        }
+      );
+
+      stream.end(file.buffer);
+    });
+
+    return uploadResult.secure_url;
+  }
+
+  await fs.promises.mkdir(AD_UPLOAD_DIR, { recursive: true });
+  const filename = `ad-${Date.now()}-${crypto.randomBytes(6).toString("hex")}.${getImageExtension(file.mimetype)}`;
+  const filepath = path.join(AD_UPLOAD_DIR, filename);
+
+  await fs.promises.writeFile(filepath, file.buffer);
+
+  return `${getApiBaseUrl(req)}/uploads/advertisements/${filename}`;
 }
 
 function getAdvertisementStatus(advertisement) {
@@ -61,12 +141,8 @@ function validateAdvertisementPayload(req, res, next) {
     return res.status(400).json({ message: "Vui lòng chọn hình ảnh quảng cáo." });
   }
 
-  if (!/^https?:\/\//i.test(image) && !/^data:image\/(png|jpe?g|webp);base64,/i.test(image)) {
+  if (!/^https?:\/\//i.test(image)) {
     return res.status(400).json({ message: "Anh quảng cáo không hợp lệ." });
-  }
-
-  if (image.length > 2_200_000) {
-    return res.status(413).json({ message: "Ảnh quá lớn. Vui lòng chọn anh nhỏ hơn 1.5MB." });
   }
 
   req.advertisementPayload = {
@@ -142,6 +218,34 @@ router.get("/admin/:id", requirePermission(PERMISSIONS.ADS_MANAGE), async (req, 
     console.error("Get advertisement error:", error);
     return res.status(500).json({ message: "Không thể tải quảng cáo." });
   }
+});
+
+router.post("/admin/image", requirePermission(PERMISSIONS.ADS_MANAGE), (req, res) => {
+  adImageUpload.single("image")(req, res, async error => {
+    if (error) {
+      const isSizeError = error.code === "LIMIT_FILE_SIZE";
+      return res.status(isSizeError ? 413 : 400).json({
+        message: isSizeError
+          ? "Ảnh quảng cáo quá lớn. Vui lòng chọn ảnh nhỏ hơn 2MB."
+          : error.message || "Không thể tải ảnh quảng cáo"
+      });
+    }
+
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: "Vui lòng chọn ảnh quảng cáo" });
+      }
+
+      const imageUrl = await saveAdvertisementImageFile(req, req.file);
+      return res.json({
+        message: "Đã tải ảnh quảng cáo",
+        image: imageUrl
+      });
+    } catch (uploadError) {
+      console.error(uploadError);
+      return res.status(500).json({ message: "Không thể lưu ảnh quảng cáo" });
+    }
+  });
 });
 
 router.post("/admin", requirePermission(PERMISSIONS.ADS_MANAGE), validateAdvertisementPayload, async (req, res) => {

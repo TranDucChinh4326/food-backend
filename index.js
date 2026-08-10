@@ -2,6 +2,7 @@ require("dotenv").config();
 
 const express = require("express");
 const cors = require("cors");
+const path = require("path");
 const db = require("./db");
 
 const app = express();
@@ -44,6 +45,7 @@ app.use(cors({
 }));
 app.use(express.json({ limit: "8mb" }));
 app.use(express.urlencoded({ extended: true, limit: "8mb" }));
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 app.use((error, req, res, next) => {
   if (error?.type === "entity.too.large") {
@@ -130,7 +132,7 @@ async function ensureSchema() {
   }
 
   try {
-    await db.query("ALTER TABLE users ADD COLUMN avatar LONGTEXT DEFAULT NULL");
+    await db.query("ALTER TABLE users ADD COLUMN avatar VARCHAR(1000) DEFAULT NULL");
     console.log("Added users.avatar column");
   } catch (error) {
     if (error.code !== "ER_DUP_FIELDNAME") {
@@ -139,7 +141,7 @@ async function ensureSchema() {
   }
 
   try {
-    await db.query("ALTER TABLE users MODIFY avatar LONGTEXT DEFAULT NULL");
+    await db.query("ALTER TABLE users MODIFY avatar VARCHAR(1000) DEFAULT NULL");
   } catch (error) {
     console.error("User avatar type check failed:", error.message);
   }
@@ -298,7 +300,7 @@ async function ensureSchema() {
       CREATE TABLE IF NOT EXISTS advertisements (
         id INT NOT NULL AUTO_INCREMENT,
         title VARCHAR(150) NOT NULL,
-        image LONGTEXT NOT NULL,
+        image VARCHAR(1000) NOT NULL,
         link_url VARCHAR(500) DEFAULT NULL,
         position VARCHAR(20) NOT NULL DEFAULT 'both',
         sort_order INT NOT NULL DEFAULT 0,
@@ -312,7 +314,7 @@ async function ensureSchema() {
         KEY advertisement_position (position)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
-    await db.query("ALTER TABLE advertisements MODIFY image LONGTEXT NOT NULL");
+    await db.query("ALTER TABLE advertisements MODIFY image VARCHAR(1000) NOT NULL");
   } catch (error) {
     console.error("Advertisement schemã check failed:", error.message);
   }

@@ -970,14 +970,13 @@ router.get("/me", requireAuth, async (req, res) => {
 
 router.put("/me", requireAuth, async (req, res) => {
   try {
-    const { username, fullname, email, phone, avatar } = req.body;
+    const { username, fullname, email, phone } = req.body;
     const hasAddressUpdate = Object.prototype.hasOwnProperty.call(req.body, "address");
     const address = req.body.address;
     const normalizedUsername = normalizeUsername(username);
     const normalizedEmail = normalizeEmail(email);
     const normalizedPhone = String(phone || "").trim();
     const normalizedAddress = String(address || "").trim();
-    const normalizedAvatar = String(avatar || "").trim();
 
     if (!normalizedUsername || !fullname || !normalizedEmail) {
       return res.status(400).json({ message: "Vui lòng nhập username, họ tên va email" });
@@ -987,13 +986,6 @@ router.put("/me", requireAuth, async (req, res) => {
       return res.status(400).json({ message: "Username chi gom chu thuong, so, dau cham, gach ngang hoặc gach duoi va từ 3-40 ky tu" });
     }
 
-    if (normalizedAvatar && !/^https?:\/\//i.test(normalizedAvatar) && !/^data:image\/(png|jpe?g|webp);base64,/i.test(normalizedAvatar)) {
-      return res.status(400).json({ message: "Ảnh đại diện không hợp lệ" });
-    }
-
-    if (normalizedAvatar.length > 500000) {
-      return res.status(413).json({ message: "Ảnh đại diện qua lon. Vui lòng chọn anh nhỏ hơn." });
-    }
 
     const [oldUsernames] = await db.query(
       "SELECT id FROM users WHERE username = ? AND id <> ?",
@@ -1020,14 +1012,12 @@ router.put("/me", requireAuth, async (req, res) => {
       "username = ?",
       "fullname = ?",
       "email = ?",
-      "avatar = ?",
       "phone = ?"
     ];
     const updateValues = [
       normalizedUsername,
       fullname.trim(),
       normalizedEmail,
-      normalizedAvatar || null,
       normalizedPhone || null
     ];
 

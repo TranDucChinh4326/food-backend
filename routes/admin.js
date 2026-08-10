@@ -1,5 +1,10 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
+const fs = require("fs");
+const path = require("path");
+const crypto = require("crypto");
+const multer = require("multer");
+const { v2: cloudinary } = require("cloudinary");
 const db = require("../db");
 const {
   ADMIN_ROLE,
@@ -13,6 +18,35 @@ const router = express.Router();
 
 const MANAGED_ROLES = ["USER", "STAFF_SALES", "STAFF_CONTENT", "STAFF_MANAGER"];
 const ALL_PERMISSIONS = Object.values(PERMISSIONS);
+const FOOD_UPLOAD_DIR = path.join(__dirname, "..", "uploads", "foods");
+const hasCloudinaryConfig = Boolean(
+  process.env.CLOUDINARY_CLOUD_NAME
+    && process.env.CLOUDINARY_API_KEY
+    && process.env.CLOUDINARY_API_SECRET
+);
+
+if (hasCloudinaryConfig) {
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET
+  });
+}
+
+const foodImageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 2 * 1024 * 1024
+  },
+  fileFilter(req, file, callback) {
+    if (!file.mimetype || !file.mimetype.startsWith("image/")) {
+      callback(new Error("Vui lòng chọn tệp hình ảnh"));
+      return;
+    }
+
+    callback(null, true);
+  }
+});
 
 function parsePermissions(value) {
   if (!value) return [];
@@ -27,6 +61,52 @@ function parsePermissions(value) {
 
 function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
+}
+
+function getApiBaseUrl(req) {
+  return (process.env.API_PUBLIC_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
+}
+
+function getImageExtension(mimetype) {
+  const extension = String(mimetype || "").split("/")[1] || "jpg";
+  return extension === "jpeg" ? "jpg" : extension.replace(/[^a-z0-9]/gi, "") || "jpg";
+}
+
+async function saveFoodImageFile(req, file) {
+  if (hasCloudinaryConfig) {
+    const uploadResult = await new Promise((resolve, reject) => {
+      const stream = cloudinary.uploader.upload_stream(
+        {
+          folder: process.env.CLOUDINARY_FOOD_FOLDER || "foodhub/foods",
+          resource_type: "image",
+          transformation: [
+            { width: 900, height: 700, crop: "limit" },
+            { quality: "auto", fetch_format: "auto" }
+          ]
+        },
+        (error, result) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+
+          resolve(result);
+        }
+      );
+
+      stream.end(file.buffer);
+    });
+
+    return uploadResult.secure_url;
+  }
+
+  await fs.promises.mkdir(FOOD_UPLOAD_DIR, { recursive: true });
+  const filename = `food-${Date.now()}-${crypto.randomBytes(6).toString("hex")}.${getImageExtension(file.mimetype)}`;
+  const filepath = path.join(FOOD_UPLOAD_DIR, filename);
+
+  await fs.promises.writeFile(filepath, file.buffer);
+
+  return `${getApiBaseUrl(req)}/uploads/foods/${filename}`;
 }
 
 async function ensureLocalProvider(userId, email) {
@@ -1031,12 +1111,45 @@ router.get("/foods", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req, re
   }
 });
 
+router.post("/foods/image", requirePermission(PERMISSIONS.FOODS_MANAGE), (req, res) => {
+  foodImageUpload.single("image")(req, res, async error => {
+    if (error) {
+      const isSizeError = error.code === "LIMIT_FILE_SIZE";
+      return res.status(isSizeError ? 413 : 400).json({
+        message: isSizeError
+          ? "Ảnh món ăn quá lớn. Vui lòng chọn ảnh nhỏ hơn 2MB."
+          : error.message || "Không thể tải ảnh món ăn"
+      });
+    }
+
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: "Vui lòng chọn ảnh món ăn" });
+      }
+
+      const imageUrl = await saveFoodImageFile(req, req.file);
+      return res.json({
+        message: "Đã tải ảnh món ăn",
+        image: imageUrl
+      });
+    } catch (uploadError) {
+      console.error(uploadError);
+      return res.status(500).json({ message: "Không thể lưu ảnh món ăn" });
+    }
+  });
+});
+
 router.post("/foods", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req, res) => {
   try {
     const { name, categoryId, price, stockQuantity, description = "", image = "", isActive = 1 } = req.body;
+    const normalizedImage = String(image || "").trim();
 
     if (!name || !categoryId || !price) {
       return res.status(400).json({ message: "Vui lòng nhập ten mon, danh mục va gia" });
+    }
+
+    if (normalizedImage && !/^https?:\/\//i.test(normalizedImage)) {
+      return res.status(400).json({ message: "Ảnh món ăn không hợp lệ. Vui lòng tải ảnh lên hệ thống trước." });
     }
 
     const normalizedStock = Math.max(0, parsePositiveNumber(stockQuantity, 0));
@@ -1044,7 +1157,7 @@ router.post("/foods", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req, r
     const [result] = await db.query(
       `INSERT INTO foods (name, category_id, price, stock_quantity, description, image, is_active)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [name.trim(), Number(categoryId), Number(price), normalizedStock, description.trim(), image.trim(), Number(isActive)]
+      [name.trim(), Number(categoryId), Number(price), normalizedStock, description.trim(), normalizedImage, Number(isActive)]
     );
 
     res.status(201).json({ message: "Thêm mon thành công", id: result.insertId });
@@ -1058,6 +1171,7 @@ router.put("/foods/:id", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req
   try {
     const foodId = Number(req.params.id);
     const { name, categoryId, price, stockQuantity, description = "", image = "", isActive = 1 } = req.body;
+    const normalizedImage = String(image || "").trim();
 
     if (!Number.isInteger(foodId) || foodId <= 0) {
       return res.status(400).json({ message: "Ma mon không hợp lệ" });
@@ -1065,6 +1179,10 @@ router.put("/foods/:id", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req
 
     if (!name || !categoryId || !price) {
       return res.status(400).json({ message: "Vui lòng nhập ten mon, danh mục va gia" });
+    }
+
+    if (normalizedImage && !/^https?:\/\//i.test(normalizedImage)) {
+      return res.status(400).json({ message: "Ảnh món ăn không hợp lệ. Vui lòng tải ảnh lên hệ thống trước." });
     }
 
     const normalizedStock = Math.max(0, parsePositiveNumber(stockQuantity, 0));
@@ -1079,7 +1197,7 @@ router.put("/foods/:id", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req
         Number(price),
         normalizedStock,
         description.trim(),
-        image.trim(),
+        normalizedImage,
         Number(isActive),
         foodId
       ]
