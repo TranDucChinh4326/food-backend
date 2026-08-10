@@ -687,8 +687,30 @@ router.get("/stats", requireAnyPermission([PERMISSIONS.STATS_VIEW, PERMISSIONS.O
        ${orderWhere}
        GROUP BY DATE(created_at)
        ORDER BY order_date DESC
-       LIMIT 14`,
+       LIMIT 7`,
       params
+    );
+
+    const [categorySales] = await db.query(
+      `SELECT COALESCE(parent_categories.name, categories.name, 'Chua phan loai') AS category_name,
+        SUM(order_details.quantity) AS quantity,
+        SUM(order_details.subtotal) AS revenue
+       FROM order_details
+       JOIN orders ON orders.id = order_details.order_id
+       LEFT JOIN foods ON foods.id = order_details.food_id
+       LEFT JOIN categories ON categories.id = foods.category_id
+       LEFT JOIN categories AS parent_categories ON parent_categories.id = categories.parent_id
+       ${detailWhere}
+       GROUP BY COALESCE(parent_categories.name, categories.name, 'Chua phan loai')
+       ORDER BY quantity DESC, revenue DESC
+       LIMIT 6`,
+      params
+    );
+
+    const [feedbackRows] = await db.query(
+      `SELECT COUNT(*) AS total_feedback,
+        COALESCE(AVG(rating), 0) AS average_rating
+       FROM customer_feedback`
     );
 
     res.json({
@@ -699,7 +721,9 @@ router.get("/stats", requireAnyPermission([PERMISSIONS.STATS_VIEW, PERMISSIONS.O
         ...discountRows[0]
       },
       topFoods,
-      dailyRevenue
+      dailyRevenue,
+      categorySales,
+      feedback: feedbackRows[0] || { total_feedback: 0, average_rating: 0 }
     });
   } catch (error) {
     console.error(error);
