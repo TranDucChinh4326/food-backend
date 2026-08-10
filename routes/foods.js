@@ -22,14 +22,24 @@ router.get("/", async (req, res) => {
                        categories.type AS category_type,
                        categories.parent_id AS parent_category_id,
                        parent_categories.name AS parent_category_name,
-                       parent_categories.slug AS parent_category_slug
+                       parent_categories.slug AS parent_category_slug,
+                       COALESCE(sales.total_sold, 0) AS sold_count
                  FROM foods
                  LEFT JOIN categories ON categories.id = foods.category_id
                  LEFT JOIN categories AS parent_categories ON parent_categories.id = categories.parent_id
+                 LEFT JOIN (
+                    SELECT food_id, SUM(quantity) AS total_sold
+                    FROM order_details
+                    GROUP BY food_id
+                 ) sales ON sales.food_id = foods.id
                  WHERE foods.is_active = 1
                    AND (categories.id IS NULL OR categories.is_active = 1)
                    AND (parent_categories.id IS NULL OR parent_categories.is_active = 1)
-                 ORDER BY categories.sort_order ASC, foods.created_at DESC, foods.id DESC`
+                 ORDER BY COALESCE(parent_categories.sort_order, categories.sort_order) ASC,
+                          categories.parent_id IS NOT NULL ASC,
+                          categories.sort_order ASC,
+                          foods.created_at DESC,
+                          foods.id DESC`
             );
         } catch (error) {
             [foods] = await db.query(
@@ -42,9 +52,15 @@ router.get("/", async (req, res) => {
                        foods.image,
                        foods.is_active,
                        foods.created_at,
-                       categories.name AS category_name
+                       categories.name AS category_name,
+                       COALESCE(sales.total_sold, 0) AS sold_count
                  FROM foods
                  LEFT JOIN categories ON categories.id = foods.category_id
+                 LEFT JOIN (
+                    SELECT food_id, SUM(quantity) AS total_sold
+                    FROM order_details
+                    GROUP BY food_id
+                 ) sales ON sales.food_id = foods.id
                  WHERE foods.is_active = 1
                  ORDER BY foods.created_at DESC, foods.id DESC`
             );
