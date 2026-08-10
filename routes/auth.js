@@ -82,41 +82,63 @@ function getAvatarExtension(mimetype) {
   return extension === "jpeg" ? "jpg" : extension.replace(/[^a-z0-9]/gi, "") || "jpg";
 }
 
+function createUploadError(code, message, cause) {
+  const error = new Error(message);
+  error.code = code;
+  error.cause = cause;
+  return error;
+}
+
 async function saveAvatarFile(req, file) {
   if (hasCloudinaryConfig) {
-    const uploadResult = await new Promise((resolve, reject) => {
-      const stream = cloudinary.uploader.upload_stream(
-        {
-          folder: process.env.CLOUDINARY_AVATAR_FOLDER || "foodhub/avatars",
-          resource_type: "image",
-          transformation: [
-            { width: 320, height: 320, crop: "fill", gravity: "face" },
-            { quality: "auto", fetch_format: "auto" }
-          ]
-        },
-        (error, result) => {
-          if (error) {
-            reject(error);
-            return;
+    try {
+      const uploadResult = await new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          {
+            folder: process.env.CLOUDINARY_AVATAR_FOLDER || "foodhub/avatars",
+            resource_type: "image",
+            transformation: [
+              { width: 320, height: 320, crop: "fill", gravity: "face" },
+              { quality: "auto", fetch_format: "auto" }
+            ]
+          },
+          (error, result) => {
+            if (error) {
+              reject(error);
+              return;
+            }
+
+            resolve(result);
           }
+        );
 
-          resolve(result);
-        }
+        stream.end(file.buffer);
+      });
+      return uploadResult.secure_url;
+    } catch (error) {
+      throw createUploadError(
+        "CLOUDINARY_UPLOAD_FAILED",
+        error.message || "Cloudinary upload failed",
+        error
       );
-
-      stream.end(file.buffer);
-    });
-
-    return uploadResult.secure_url;
+    }
   }
 
-  await fs.promises.mkdir(AVATAR_UPLOAD_DIR, { recursive: true });
-  const filename = `${req.user.id}-${Date.now()}-${crypto.randomBytes(6).toString("hex")}.${getAvatarExtension(file.mimetype)}`;
-  const filepath = path.join(AVATAR_UPLOAD_DIR, filename);
+  try {
+    await fs.promises.mkdir(AVATAR_UPLOAD_DIR, { recursive: true });
+    const filename = `${req.user.id}-${Date.now()}-${crypto.randomBytes(6).toString("hex")}.${getAvatarExtension(file.mimetype)}`;
+    const filepath = path.join(AVATAR_UPLOAD_DIR, filename);
 
-  await fs.promises.writeFile(filepath, file.buffer);
+    await fs.promises.writeFile(filepath, file.buffer);
 
-  return `${getApiBaseUrl(req)}/uploads/avatars/${filename}`;
+    return `${getApiBaseUrl(req)}/uploads/avatars/${filename}`;
+  } catch (error) {
+    throw createUploadError(
+      "LOCAL_UPLOAD_FAILED",
+      error.message || "Local upload failed",
+      error
+    );
+  }
 }
 
 function getFrontendUrl() {
@@ -1085,7 +1107,15 @@ router.post("/avatar", requireAuth, (req, res) => {
       }
 
       const avatarUrl = await saveAvatarFile(req, req.file);
-      await db.query("UPDATE users SET avatar = ? WHERE id = ?", [avatarUrl, req.user.id]);
+      try {
+        await db.query("UPDATE users SET avatar = ? WHERE id = ?", [avatarUrl, req.user.id]);
+      } catch (error) {
+        throw createUploadError(
+          "AVATAR_DB_UPDATE_FAILED",
+          error.message || "Avatar database update failed",
+          error
+        );
+      }
 
       const [users] = await db.query(
         "SELECT id, username, fullname, email, avatar, phone, address, role, email_verified AS emailVerified, password_set AS passwordSet, created_at FROM users WHERE id = ?",
@@ -1098,8 +1128,16 @@ router.post("/avatar", requireAuth, (req, res) => {
         user: users[0]
       });
     } catch (uploadError) {
-      console.error(uploadError);
-      return res.status(500).json({ message: "Không thể lưu ảnh đại diện" });
+      console.error("Avatar upload failed:", {
+        code: uploadError.code || "AVATAR_UPLOAD_FAILED",
+        message: uploadError.message,
+        cause: uploadError.cause?.message
+      });
+      return res.status(500).json({
+        message: "Không thể lưu ảnh đại diện",
+        code: uploadError.code || "AVATAR_UPLOAD_FAILED",
+        detail: uploadError.message
+      });
     }
   });
 });
