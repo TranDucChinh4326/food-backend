@@ -23,7 +23,9 @@ router.get("/", async (req, res) => {
                        categories.parent_id AS parent_category_id,
                        parent_categories.name AS parent_category_name,
                        parent_categories.slug AS parent_category_slug,
-                       COALESCE(sales.total_sold, 0) AS sold_count
+                       COALESCE(sales.total_sold, 0) AS sold_count,
+                       COALESCE(reviews.review_count, 0) AS review_count,
+                       COALESCE(reviews.average_rating, 0) AS rating
                  FROM foods
                  LEFT JOIN categories ON categories.id = foods.category_id
                  LEFT JOIN categories AS parent_categories ON parent_categories.id = categories.parent_id
@@ -32,6 +34,12 @@ router.get("/", async (req, res) => {
                     FROM order_details
                     GROUP BY food_id
                  ) sales ON sales.food_id = foods.id
+                 LEFT JOIN (
+                    SELECT food_id, COUNT(*) AS review_count, AVG(rating) AS average_rating
+                    FROM food_reviews
+                    WHERE is_visible = 1
+                    GROUP BY food_id
+                 ) reviews ON reviews.food_id = foods.id
                  WHERE foods.is_active = 1
                    AND (categories.id IS NULL OR categories.is_active = 1)
                    AND (parent_categories.id IS NULL OR parent_categories.is_active = 1)
@@ -53,7 +61,9 @@ router.get("/", async (req, res) => {
                        foods.is_active,
                        foods.created_at,
                        categories.name AS category_name,
-                       COALESCE(sales.total_sold, 0) AS sold_count
+                       COALESCE(sales.total_sold, 0) AS sold_count,
+                       COALESCE(reviews.review_count, 0) AS review_count,
+                       COALESCE(reviews.average_rating, 0) AS rating
                  FROM foods
                  LEFT JOIN categories ON categories.id = foods.category_id
                  LEFT JOIN (
@@ -61,6 +71,12 @@ router.get("/", async (req, res) => {
                     FROM order_details
                     GROUP BY food_id
                  ) sales ON sales.food_id = foods.id
+                 LEFT JOIN (
+                    SELECT food_id, COUNT(*) AS review_count, AVG(rating) AS average_rating
+                    FROM food_reviews
+                    WHERE is_visible = 1
+                    GROUP BY food_id
+                 ) reviews ON reviews.food_id = foods.id
                  WHERE foods.is_active = 1
                  ORDER BY foods.created_at DESC, foods.id DESC`
             );
