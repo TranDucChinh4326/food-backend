@@ -355,7 +355,7 @@ async function ensureSchema() {
         user_id INT NOT NULL,
         order_id INT NOT NULL,
         rating TINYINT NOT NULL,
-        comment TEXT NOT NULL,
+        comment TEXT DEFAULT NULL,
         is_visible TINYINT NOT NULL DEFAULT 1,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
@@ -370,6 +370,7 @@ async function ensureSchema() {
         CONSTRAINT food_reviews_rating_check CHECK (rating BETWEEN 1 AND 5)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
+    await db.query("ALTER TABLE food_reviews MODIFY comment TEXT NULL");
   } catch (error) {
     console.error("Food reviews schema check failed:", error.message);
   }

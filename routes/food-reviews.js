@@ -95,8 +95,8 @@ router.post("/", requireAuth, async (req, res) => {
       return res.status(400).json({ message: "Số sao phải từ 1 đến 5" });
     }
 
-    if (comment.length < 5 || comment.length > 1000) {
-      return res.status(400).json({ message: "Nội dung đánh giá phải từ 5 đến 1000 ký tự" });
+    if (comment.length > 1000) {
+      return res.status(400).json({ message: "Nội dung đánh giá không được quá 1000 ký tự" });
     }
 
     const [eligibleItems] = await db.query(
