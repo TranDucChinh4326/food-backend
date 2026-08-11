@@ -17,6 +17,7 @@ function mapReview(row) {
   return {
     id: row.id,
     foodId: row.food_id,
+    orderId: row.order_id,
     foodName: row.food_name,
     foodImage: row.food_image,
     categoryName: row.category_name,
@@ -52,6 +53,7 @@ router.get("/", async (req, res) => {
     const [reviews] = await db.query(
       `SELECT food_reviews.id,
               food_reviews.food_id,
+              food_reviews.order_id,
               food_reviews.user_id,
               food_reviews.rating,
               food_reviews.comment,
@@ -126,6 +128,7 @@ router.post("/", requireAuth, async (req, res) => {
       const [reviews] = await db.query(
         `SELECT food_reviews.id,
                 food_reviews.food_id,
+                food_reviews.order_id,
                 food_reviews.user_id,
                 food_reviews.rating,
                 food_reviews.comment,
