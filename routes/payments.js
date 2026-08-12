@@ -64,6 +64,15 @@ function verifyVnpayParams(query) {
   return signed === secureHash;
 }
 
+function getFrontendUrl() {
+  return (
+    process.env.FRONTEND_PUBLIC_URL ||
+    process.env.FRONTEND_URL ||
+    (process.env.CORS_ORIGIN || "").split(",").map(origin => origin.trim()).find(Boolean) ||
+    "http://localhost:5500"
+  );
+}
+
 async function applyVnpayResult(params) {
   if (!verifyVnpayParams(params)) {
     return { ok: false, code: "97", message: "Invalid signature" };
@@ -260,7 +269,7 @@ router.get("/vnpay/ipn", async (req, res) => {
 });
 
 router.get("/vnpay/return", async (req, res) => {
-  const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5500";
+  const frontendUrl = getFrontendUrl();
 
   try {
     const result = await applyVnpayResult(req.query || {});
