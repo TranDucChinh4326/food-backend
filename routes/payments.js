@@ -1,4 +1,5 @@
 const express = require("express");
+const crypto = require("crypto");
 const db = require("../db");
 
 const router = express.Router();
@@ -39,6 +40,28 @@ function normalizeTransaction(body) {
     amount: parseAmount(amount),
     rawPayload: body
   };
+}
+
+function sortObject(input) {
+  return Object.keys(input).sort().reduce((result, key) => {
+    result[key] = input[key];
+    return result;
+  }, {});
+}
+
+function verifyVnpayParams(query) {
+  const secureHash = query.vnp_SecureHash;
+  const hashSecret = process.env.VNPAY_HASH_SECRET || "";
+
+  if (!secureHash || !hashSecret) return false;
+
+  const params = { ...query };
+  delete params.vnp_SecureHash;
+  delete params.vnp_SecureHashType;
+
+  const signData = new URLSearchParams(sortObject(params)).toString();
+  const signed = crypto.createHmac("sha512", hashSecret).update(signData).digest("hex");
+  return signed === secureHash;
 }
 
 router.post("/bank-transfer/webhook", async (req, res) => {
@@ -128,6 +151,102 @@ router.post("/bank-transfer/webhook", async (req, res) => {
     await connection.rollback();
     console.error(error);
     res.status(500).json({ message: "Server error" });
+  } finally {
+    connection.release();
+  }
+});
+
+router.get("/vnpay/ipn", async (req, res) => {
+  const params = req.query || {};
+
+  if (!verifyVnpayParams(params)) {
+    return res.json({ RspCode: "97", Message: "Invalid signature" });
+  }
+
+  const orderId = Number(params.vnp_TxnRef);
+  const amount = Math.round(Number(params.vnp_Amount || 0) / 100);
+  const isPaid = params.vnp_ResponseCode === "00" && params.vnp_TransactionStatus === "00";
+
+  if (!orderId || !amount) {
+    return res.json({ RspCode: "01", Message: "Order not found" });
+  }
+
+  const connection = await db.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    const [sessions] = await connection.query(
+      `SELECT payment_sessions.id, payment_sessions.amount, payment_sessions.status
+       FROM payment_sessions
+       JOIN orders ON orders.id = payment_sessions.order_id
+       WHERE payment_sessions.order_id = ? AND payment_sessions.method = 'vnpay'
+       LIMIT 1
+       FOR UPDATE`,
+      [orderId]
+    );
+
+    if (sessions.length === 0) {
+      await connection.rollback();
+      return res.json({ RspCode: "01", Message: "Order not found" });
+    }
+
+    const session = sessions[0];
+
+    if (Number(session.amount) !== amount) {
+      await connection.rollback();
+      return res.json({ RspCode: "04", Message: "Invalid amount" });
+    }
+
+    if (session.status === "paid") {
+      await connection.rollback();
+      return res.json({ RspCode: "02", Message: "Order already confirmed" });
+    }
+
+    await connection.query(
+      `INSERT INTO payment_transactions
+        (order_id, payment_session_id, provider_transaction_id, amount, transfer_content, status, raw_payload)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         status = VALUES(status),
+         raw_payload = VALUES(raw_payload)`,
+      [
+        orderId,
+        session.id,
+        params.vnp_TransactionNo || `vnpay-${orderId}`,
+        amount,
+        params.vnp_OrderInfo || "",
+        isPaid ? "matched" : "failed",
+        JSON.stringify(params)
+      ]
+    );
+
+    if (isPaid) {
+      await connection.query(
+        "UPDATE orders SET payment_status = 'paid', status = 'pending' WHERE id = ?",
+        [orderId]
+      );
+      await connection.query(
+        "UPDATE payment_sessions SET status = 'paid', paid_at = NOW() WHERE id = ?",
+        [session.id]
+      );
+    } else {
+      await connection.query(
+        "UPDATE orders SET payment_status = 'failed' WHERE id = ?",
+        [orderId]
+      );
+      await connection.query(
+        "UPDATE payment_sessions SET status = 'failed' WHERE id = ?",
+        [session.id]
+      );
+    }
+
+    await connection.commit();
+    return res.json({ RspCode: "00", Message: "Confirm success" });
+  } catch (error) {
+    await connection.rollback();
+    console.error(error);
+    return res.json({ RspCode: "99", Message: "Unknown error" });
   } finally {
     connection.release();
   }

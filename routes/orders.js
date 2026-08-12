@@ -1,4 +1,5 @@
 const express = require("express");
+const crypto = require("crypto");
 const db = require("../db");
 const { requireAuth } = require("../middleware/auth");
 
@@ -43,6 +44,65 @@ function buildVietQrUrl({ bankCode, accountNo, accountName, amount, transferCont
   return `https://img.vietqr.io/image/${encodeURIComponent(bankCode)}-${encodeURIComponent(accountNo)}-compact2.png?${query.toString()}`;
 }
 
+function formatVnpayDate(date) {
+  const pad = value => String(value).padStart(2, "0");
+
+  return [
+    date.getFullYear(),
+    pad(date.getMonth() + 1),
+    pad(date.getDate()),
+    pad(date.getHours()),
+    pad(date.getMinutes()),
+    pad(date.getSeconds())
+  ].join("");
+}
+
+function sortObject(input) {
+  return Object.keys(input).sort().reduce((result, key) => {
+    result[key] = input[key];
+    return result;
+  }, {});
+}
+
+function ensureVnpayConfig() {
+  const config = {
+    tmnCode: process.env.VNPAY_TMN_CODE || "",
+    hashSecret: process.env.VNPAY_HASH_SECRET || "",
+    paymentUrl: process.env.VNPAY_PAYMENT_URL || "https://sandbox.vnpayment.vn/paymentv2/vpcpay.html",
+    returnUrl: process.env.VNPAY_RETURN_URL || `${process.env.FRONTEND_URL || "http://localhost:5500"}/track.html`
+  };
+
+  if (!config.tmnCode || !config.hashSecret || !config.returnUrl) {
+    const error = new Error("Chua cau hinh VNPay");
+    error.status = 500;
+    throw error;
+  }
+
+  return config;
+}
+
+function buildVnpayPaymentUrl({ orderId, amount, ip, orderInfo }) {
+  const config = ensureVnpayConfig();
+  const params = sortObject({
+    vnp_Version: "2.1.0",
+    vnp_Command: "pay",
+    vnp_TmnCode: config.tmnCode,
+    vnp_Amount: String(Math.round(Number(amount) * 100)),
+    vnp_CurrCode: "VND",
+    vnp_TxnRef: String(orderId),
+    vnp_OrderInfo: orderInfo,
+    vnp_OrderType: "other",
+    vnp_Locale: "vn",
+    vnp_ReturnUrl: config.returnUrl,
+    vnp_IpAddr: ip || "127.0.0.1",
+    vnp_CreateDate: formatVnpayDate(new Date())
+  });
+  const signData = new URLSearchParams(params).toString();
+  const secureHash = crypto.createHmac("sha512", config.hashSecret).update(signData).digest("hex");
+
+  return `${config.paymentUrl}?${signData}&vnp_SecureHash=${secureHash}`;
+}
+
 async function getItemsByOrderIds(orderIds) {
   if (orderIds.length === 0) return {};
 
@@ -83,7 +143,7 @@ router.post("/", requireAuth, async (req, res) => {
       return res.status(400).json({ message: "Vui lòng nhập thong tin giao hàng" });
     }
 
-    if (!["cod", "qr", "wallet"].includes(normalizedPaymentMethod)) {
+    if (!["cod", "qr", "vnpay", "wallet"].includes(normalizedPaymentMethod)) {
       return res.status(400).json({ message: "Phuong thuc thanh toan không hợp lệ" });
     }
 
@@ -149,8 +209,9 @@ router.post("/", requireAuth, async (req, res) => {
       };
     });
     const totalPrice = orderItems.reduce((sum, item) => sum + item.subtotal, 0);
-    const paymentStatus = normalizedPaymentMethod === "qr" ? "pending" : "unpaid";
-    const orderStatus = normalizedPaymentMethod === "qr" ? "pending_payment" : "pending";
+    const needsOnlinePayment = ["qr", "vnpay"].includes(normalizedPaymentMethod);
+    const paymentStatus = needsOnlinePayment ? "pending" : "unpaid";
+    const orderStatus = needsOnlinePayment ? "pending_payment" : "pending";
 
     await connection.beginTransaction();
 
@@ -236,6 +297,32 @@ router.post("/", requireAuth, async (req, res) => {
         transferContent,
         qrUrl,
         status: "pending",
+        expiresInSeconds: QR_PAYMENT_TTL_MINUTES * 60
+      };
+    }
+
+    if (normalizedPaymentMethod === "vnpay") {
+      const transferContent = buildTransferContent(orderId);
+      const paymentUrl = buildVnpayPaymentUrl({
+        orderId,
+        amount: totalPrice,
+        ip: req.headers["x-forwarded-for"]?.split(",")[0] || req.socket.remoteAddress,
+        orderInfo: transferContent
+      });
+      const [sessionResult] = await connection.query(
+        `INSERT INTO payment_sessions
+          (order_id, user_id, method, amount, transfer_content, status, expires_at)
+         VALUES (?, ?, 'vnpay', ?, ?, 'pending', DATE_ADD(NOW(), INTERVAL ? MINUTE))`,
+        [orderId, req.user.id, totalPrice, transferContent, QR_PAYMENT_TTL_MINUTES]
+      );
+
+      paymentSession = {
+        id: sessionResult.insertId,
+        method: "vnpay",
+        amount: totalPrice,
+        transferContent,
+        status: "pending",
+        paymentUrl,
         expiresInSeconds: QR_PAYMENT_TTL_MINUTES * 60
       };
     }
