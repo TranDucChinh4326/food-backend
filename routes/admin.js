@@ -710,9 +710,11 @@ router.get("/stats", requireAnyPermission([PERMISSIONS.STATS_VIEW, PERMISSIONS.O
     }
 
     const orderWhere = where.length ? `WHERE ${where.join(" AND ")}` : "";
-    const detailWhere = where.length
-      ? `WHERE ${where.map(condition => condition.replace("created_at", "orders.created_at")).join(" AND ")}`
-      : "";
+    const detailConditions = [
+      "orders.status = 'done'",
+      ...where.map(condition => condition.replace("created_at", "orders.created_at"))
+    ];
+    const detailWhere = `WHERE ${detailConditions.join(" AND ")}`;
 
     const [orderRows] = await db.query(
       `SELECT

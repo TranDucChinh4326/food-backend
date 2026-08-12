@@ -30,9 +30,11 @@ router.get("/", async (req, res) => {
                  LEFT JOIN categories ON categories.id = foods.category_id
                  LEFT JOIN categories AS parent_categories ON parent_categories.id = categories.parent_id
                  LEFT JOIN (
-                    SELECT food_id, SUM(quantity) AS total_sold
+                    SELECT order_details.food_id, SUM(order_details.quantity) AS total_sold
                     FROM order_details
-                    GROUP BY food_id
+                    JOIN orders ON orders.id = order_details.order_id
+                    WHERE orders.status = 'done'
+                    GROUP BY order_details.food_id
                  ) sales ON sales.food_id = foods.id
                  LEFT JOIN (
                     SELECT food_id, COUNT(*) AS review_count, AVG(rating) AS average_rating
@@ -67,9 +69,11 @@ router.get("/", async (req, res) => {
                  FROM foods
                  LEFT JOIN categories ON categories.id = foods.category_id
                  LEFT JOIN (
-                    SELECT food_id, SUM(quantity) AS total_sold
+                    SELECT order_details.food_id, SUM(order_details.quantity) AS total_sold
                     FROM order_details
-                    GROUP BY food_id
+                    JOIN orders ON orders.id = order_details.order_id
+                    WHERE orders.status = 'done'
+                    GROUP BY order_details.food_id
                  ) sales ON sales.food_id = foods.id
                  LEFT JOIN (
                     SELECT food_id, COUNT(*) AS review_count, AVG(rating) AS average_rating
