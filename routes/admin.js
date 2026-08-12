@@ -1586,6 +1586,86 @@ router.post("/feedback/:id/reply", requirePermission(PERMISSIONS.FEEDBACK_MANAGE
   }
 });
 
+router.get("/food-reviews", requirePermission(PERMISSIONS.FEEDBACK_MANAGE), async (req, res) => {
+  try {
+    const search = String(req.query.search || "").trim();
+    const rating = Number(req.query.rating || 0);
+    const visibility = String(req.query.visibility || "all").trim().toLowerCase();
+    const where = [];
+    const params = [];
+
+    if (Number.isInteger(rating) && rating >= 1 && rating <= 5) {
+      where.push("food_reviews.rating = ?");
+      params.push(rating);
+    }
+
+    if (visibility === "visible") {
+      where.push("food_reviews.is_visible = 1");
+    } else if (visibility === "hidden") {
+      where.push("food_reviews.is_visible = 0");
+    }
+
+    if (search) {
+      where.push("(foods.name LIKE ? OR food_reviews.comment LIKE ? OR users.fullname LIKE ? OR users.email LIKE ?)");
+      const keyword = `%${search}%`;
+      params.push(keyword, keyword, keyword, keyword);
+    }
+
+    const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+    const [reviews] = await db.query(
+      `SELECT food_reviews.id,
+              food_reviews.food_id,
+              food_reviews.order_id,
+              food_reviews.user_id,
+              food_reviews.rating,
+              food_reviews.comment,
+              food_reviews.is_visible,
+              food_reviews.created_at,
+              foods.name AS food_name,
+              foods.image AS food_image,
+              COALESCE(users.fullname, users.username, users.email, 'Khach hang') AS customer_name,
+              users.email AS customer_email,
+              users.avatar
+       FROM food_reviews
+       JOIN foods ON foods.id = food_reviews.food_id
+       JOIN users ON users.id = food_reviews.user_id
+       ${whereSql}
+       ORDER BY food_reviews.created_at DESC, food_reviews.id DESC`,
+      params
+    );
+
+    res.json(reviews);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Loi server" });
+  }
+});
+
+router.patch("/food-reviews/:id/visibility", requirePermission(PERMISSIONS.FEEDBACK_MANAGE), async (req, res) => {
+  try {
+    const reviewId = Number(req.params.id);
+    const isVisible = Boolean(req.body.isVisible);
+
+    if (!Number.isInteger(reviewId) || reviewId <= 0) {
+      return res.status(400).json({ message: "Ma danh gia khong hop le" });
+    }
+
+    const [result] = await db.query(
+      "UPDATE food_reviews SET is_visible = ? WHERE id = ?",
+      [isVisible ? 1 : 0, reviewId]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "Khong tim thay danh gia" });
+    }
+
+    res.json({ message: isVisible ? "Da hien thi danh gia" : "Da an danh gia" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Loi server" });
+  }
+});
+
 router.put("/users/:id/password", requirePermission(PERMISSIONS.PASSWORD_RESET), async (req, res) => {
   try {
     const userId = Number(req.params.id);
