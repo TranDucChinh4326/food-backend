@@ -184,6 +184,24 @@ CREATE TABLE IF NOT EXISTS payment_sessions (
   CONSTRAINT payment_sessions_user_fk FOREIGN KEY (user_id) REFERENCES users (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS payment_transactions (
+  id INT NOT NULL AUTO_INCREMENT,
+  order_id INT NOT NULL,
+  payment_session_id INT NOT NULL,
+  provider_transaction_id VARCHAR(120) DEFAULT NULL,
+  amount INT NOT NULL,
+  transfer_content VARCHAR(255) NOT NULL,
+  status VARCHAR(30) NOT NULL DEFAULT 'matched',
+  raw_payload JSON DEFAULT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY payment_transactions_provider_txn (provider_transaction_id),
+  KEY order_id (order_id),
+  KEY payment_session_id (payment_session_id),
+  CONSTRAINT payment_transactions_order_fk FOREIGN KEY (order_id) REFERENCES orders (id),
+  CONSTRAINT payment_transactions_session_fk FOREIGN KEY (payment_session_id) REFERENCES payment_sessions (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS announcements (
   id INT NOT NULL AUTO_INCREMENT,
   title VARCHAR(255) NOT NULL,

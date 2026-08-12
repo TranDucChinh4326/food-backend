@@ -64,6 +64,7 @@ app.use("/api/announcements", require("./routes/announcements"));
 app.use("/api/advertisements", require("./routes/advertisements"));
 app.use("/api/feedback", require("./routes/feedback"));
 app.use("/api/food-reviews", require("./routes/food-reviews"));
+app.use("/api/payments", require("./routes/payments"));
 app.use("/api/admin", require("./routes/admin"));
 
 app.get("/", (req, res) => {
@@ -294,6 +295,30 @@ async function ensureSchema() {
     `);
   } catch (error) {
     console.error("Payment session schemã check failed:", error.message);
+  }
+
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS payment_transactions (
+        id INT NOT NULL AUTO_INCREMENT,
+        order_id INT NOT NULL,
+        payment_session_id INT NOT NULL,
+        provider_transaction_id VARCHAR(120) DEFAULT NULL,
+        amount INT NOT NULL,
+        transfer_content VARCHAR(255) NOT NULL,
+        status VARCHAR(30) NOT NULL DEFAULT 'matched',
+        raw_payload JSON DEFAULT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY payment_transactions_provider_txn (provider_transaction_id),
+        KEY order_id (order_id),
+        KEY payment_session_id (payment_session_id),
+        CONSTRAINT payment_transactions_order_fk FOREIGN KEY (order_id) REFERENCES orders (id),
+        CONSTRAINT payment_transactions_session_fk FOREIGN KEY (payment_session_id) REFERENCES payment_sessions (id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+  } catch (error) {
+    console.error("Payment transaction schema check failed:", error.message);
   }
 
   try {

@@ -338,6 +338,43 @@ router.post("/:id/payment/cancel", requireAuth, async (req, res) => {
   }
 });
 
+router.get("/:id/payment/status", requireAuth, async (req, res) => {
+  try {
+    const orderId = Number(req.params.id);
+
+    if (!isPositiveInteger(orderId)) {
+      return res.status(400).json({ message: "Ma don hang khong hop le" });
+    }
+
+    const [orders] = await db.query(
+      `SELECT orders.id, orders.status, orders.payment_status,
+              payment_sessions.status AS session_status, payment_sessions.paid_at
+       FROM orders
+       LEFT JOIN payment_sessions ON payment_sessions.order_id = orders.id
+       WHERE orders.id = ? AND orders.user_id = ? AND orders.payment_method = 'qr'
+       LIMIT 1`,
+      [orderId, req.user.id]
+    );
+
+    if (orders.length === 0) {
+      return res.status(404).json({ message: "Khong tim thay giao dich QR" });
+    }
+
+    const order = orders[0];
+
+    res.json({
+      orderId: order.id,
+      orderStatus: order.status,
+      paymentStatus: order.payment_status,
+      sessionStatus: order.session_status,
+      paidAt: order.paid_at
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Loi server" });
+  }
+});
+
 router.get("/", requireAuth, async (req, res) => {
   try {
     const { q = "", date = "", month = "", year = "" } = req.query;
