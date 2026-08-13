@@ -1318,8 +1318,11 @@ router.get("/users", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISSIONS
 router.post("/users", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISSIONS.STAFF_MANAGE]), async (req, res) => {
   try {
     const { fullname, username, email, password, role = "USER", permissions = [] } = req.body;
-    const normalizedRole = String(role || "USER").trim().toUpperCase();
+    let normalizedRole = String(role || "USER").trim().toUpperCase();
     const normalizedUsername = normalizeUsername(username);
+    if (normalizedRole === "USER" && normalizedUsername && !normalizeEmail(email)) {
+      normalizedRole = "STAFF_SALES";
+    }
     const normalizedEmail = normalizedRole === "USER" ? normalizeEmail(email) : buildStaffEmail(normalizedUsername);
 
     if (!fullname || !password || (normalizedRole === "USER" ? !normalizedEmail : !normalizedUsername)) {
@@ -1435,8 +1438,11 @@ router.put("/users/:id", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISS
   try {
     const userId = Number(req.params.id);
     const { fullname, username, email, role = "USER", permissions = [] } = req.body;
-    const normalizedRole = String(role || "USER").trim().toUpperCase();
+    let normalizedRole = String(role || "USER").trim().toUpperCase();
     const normalizedUsername = normalizeUsername(username);
+    if (normalizedRole === "USER" && normalizedUsername && !normalizeEmail(email)) {
+      normalizedRole = "STAFF_SALES";
+    }
     const normalizedEmail = normalizedRole === "USER" ? normalizeEmail(email) : buildStaffEmail(normalizedUsername);
 
     if (!Number.isInteger(userId) || userId <= 0) {
