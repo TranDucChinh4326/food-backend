@@ -57,6 +57,14 @@ function publicUser(user) {
   const username = user.username || null;
   const hasPassword = Boolean(user.password_set ?? true);
   const isAdmin = String(user.role || "").toUpperCase() === "ADMIN";
+  let permissions = [];
+
+  try {
+    const parsedPermissions = typeof user.permissions === "string" ? JSON.parse(user.permissions) : user.permissions;
+    permissions = Array.isArray(parsedPermissions) ? parsedPermissions.map(String) : [];
+  } catch (error) {
+    permissions = [];
+  }
 
   return {
     id: user.id,
@@ -69,6 +77,7 @@ function publicUser(user) {
     address: user.address || null,
     emailVerified: Boolean(user.email_verified),
     passwordSet: hasPassword,
+    permissions,
     requiresAccountSetup: !isAdmin && (!hasPassword || !username)
   };
 }

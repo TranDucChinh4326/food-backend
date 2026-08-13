@@ -10,6 +10,7 @@ const {
   ADMIN_ROLE,
   PERMISSIONS,
   hasPermission,
+  requireAuth,
   requireAnyPermission,
   requirePermission
 } = require("../middleware/auth");
@@ -307,6 +308,35 @@ function ensureManageAccess(req, res, targetRole = "USER") {
 
   return null;
 }
+
+router.get("/me", requireAuth, async (req, res) => {
+  try {
+    const [users] = await db.query(
+      "SELECT id, fullname, email, role, permissions, is_active FROM users WHERE id = ? LIMIT 1",
+      [req.user.id]
+    );
+
+    if (users.length === 0 || !users[0].is_active) {
+      return res.status(401).json({ message: "Tai khoan khong kha dung" });
+    }
+
+    const user = users[0];
+    if (String(user.role || "").toUpperCase() === "USER") {
+      return res.status(403).json({ message: "Ban khong co quyen quan tri" });
+    }
+
+    res.json({
+      id: user.id,
+      fullname: user.fullname,
+      email: user.email,
+      role: user.role,
+      permissions: String(user.role || "").toUpperCase() === ADMIN_ROLE ? ALL_PERMISSIONS : parsePermissions(user.permissions)
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Loi server" });
+  }
+});
 
 router.get("/permissions", requirePermission(PERMISSIONS.ROLES_MANAGE), (req, res) => {
   res.json({
