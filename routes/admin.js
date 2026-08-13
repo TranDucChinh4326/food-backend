@@ -731,8 +731,28 @@ router.get("/stats", requireAnyPermission([PERMISSIONS.STATS_VIEW, PERMISSIONS.O
   try {
     const from = String(req.query.from || "").trim();
     const to = String(req.query.to || "").trim();
+    const trend = ["day", "month", "year"].includes(String(req.query.trend || "").trim())
+      ? String(req.query.trend || "").trim()
+      : "day";
     const where = [];
     const params = [];
+    const revenueTrendConfig = {
+      day: {
+        label: "DATE(created_at)",
+        date: "DATE(created_at)",
+        limit: 7
+      },
+      month: {
+        label: "DATE_FORMAT(created_at, '%Y-%m')",
+        date: "MIN(DATE(created_at))",
+        limit: 12
+      },
+      year: {
+        label: "DATE_FORMAT(created_at, '%Y')",
+        date: "MIN(DATE(created_at))",
+        limit: 6
+      }
+    }[trend];
 
     if (from) {
       where.push("DATE(created_at) >= ?");
@@ -798,13 +818,15 @@ router.get("/stats", requireAnyPermission([PERMISSIONS.STATS_VIEW, PERMISSIONS.O
     );
 
     const [dailyRevenue] = await db.query(
-      `SELECT DATE(created_at) AS order_date, COUNT(*) AS orders_count,
+      `SELECT ${revenueTrendConfig.label} AS order_label,
+        ${revenueTrendConfig.date} AS order_date,
+        COUNT(*) AS orders_count,
         COALESCE(SUM(CASE WHEN status = 'done' THEN total_price ELSE 0 END), 0) AS revenue
        FROM orders
        ${orderWhere}
-       GROUP BY DATE(created_at)
-       ORDER BY order_date DESC
-       LIMIT 7`,
+       GROUP BY ${revenueTrendConfig.label}
+       ORDER BY order_label DESC
+       LIMIT ${revenueTrendConfig.limit}`,
       params
     );
 
@@ -837,6 +859,7 @@ router.get("/stats", requireAnyPermission([PERMISSIONS.STATS_VIEW, PERMISSIONS.O
         ...foodRows[0],
         ...discountRows[0]
       },
+      trend,
       topFoods,
       dailyRevenue,
       categorySales,
