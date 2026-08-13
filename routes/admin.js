@@ -223,29 +223,19 @@ function validateDiscountPayload(body) {
   const code = normalizeDiscountCode(body.code);
   const name = String(body.name || "").trim();
   const discountType = String(body.discountType || body.discount_type || "percent").trim().toLowerCase();
+  const applyTo = String(body.applyTo || body.apply_to || "order").trim().toLowerCase();
   const discountValue = parsePositiveNumber(body.discountValue ?? body.discount_value, 0);
   const minOrder = parsePositiveNumber(body.minOrder ?? body.min_order, 0);
   const maxDiscount = parseNullablePositiveNumber(body.maxDiscount ?? body.max_discount);
   const usageLimit = parseNullablePositiveNumber(body.usageLimit ?? body.usage_limit);
 
-  if (!code) {
-    return { error: "Vui lòng nhập mã giảm giá" };
-  }
-
-  if (!/^[A-Z0-9_-]{3,40}$/.test(code)) {
-    return { error: "Mã giảm giá chi gom chu, so, dau gach ngang hoặc gach duoi" };
-  }
-
-  if (!name) {
-    return { error: "Vui lòng nhập ten chuong trinh" };
-  }
-
-  if (!["percent", "fixed"].includes(discountType)) {
-    return { error: "Kiểu giảm giá không hợp lệ" };
-  }
-
-  if (discountValue <= 0 || (discountType === "percent" && discountValue > 100)) {
-    return { error: "Giá trị giảm giá không hợp lệ" };
+  if (!code) return { error: "Vui long nhap ma giam gia" };
+  if (!/^[A-Z0-9_-]{3,40}$/.test(code)) return { error: "Ma giam gia chi gom chu, so, dau gach ngang hoac gach duoi" };
+  if (!name) return { error: "Vui long nhap ten chuong trinh" };
+  if (!["percent", "fixed", "free_shipping"].includes(discountType)) return { error: "Kieu giam gia khong hop le" };
+  if (!["order", "shipping"].includes(applyTo)) return { error: "Pham vi ap dung ma giam gia khong hop le" };
+  if ((discountType !== "free_shipping" && discountValue <= 0) || (discountType === "percent" && discountValue > 100)) {
+    return { error: "Gia tri giam gia khong hop le" };
   }
 
   return {
@@ -253,7 +243,8 @@ function validateDiscountPayload(body) {
       code,
       name,
       discountType,
-      discountValue,
+      applyTo,
+      discountValue: discountType === "free_shipping" ? 0 : discountValue,
       minOrder,
       maxDiscount,
       usageLimit,
@@ -535,7 +526,7 @@ router.get("/discounts", requirePermission(PERMISSIONS.DISCOUNTS_MANAGE), async 
     }
 
     const [discounts] = await db.query(
-      `SELECT id, code, name, discount_type, discount_value, min_order, max_discount,
+      `SELECT id, code, name, discount_type, discount_value, apply_to, min_order, max_discount,
         usage_limit, used_count, starts_at, expires_at, is_active, created_at, updated_at,
         CASE
           WHEN is_active = 0 THEN 'hidden'
@@ -567,7 +558,7 @@ router.get("/discounts/:id", requirePermission(PERMISSIONS.DISCOUNTS_MANAGE), as
     }
 
     const [discounts] = await db.query(
-      `SELECT id, code, name, discount_type, discount_value, min_order, max_discount,
+      `SELECT id, code, name, discount_type, discount_value, apply_to, min_order, max_discount,
         usage_limit, used_count, starts_at, expires_at, is_active, created_at, updated_at
        FROM discounts
        WHERE id = ?`,
@@ -595,13 +586,14 @@ router.post("/discounts", requirePermission(PERMISSIONS.DISCOUNTS_MANAGE), async
     const discount = parsed.value;
     const [result] = await db.query(
       `INSERT INTO discounts
-       (code, name, discount_type, discount_value, min_order, max_discount, usage_limit, starts_at, expires_at, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (code, name, discount_type, discount_value, apply_to, min_order, max_discount, usage_limit, starts_at, expires_at, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         discount.code,
         discount.name,
         discount.discountType,
         discount.discountValue,
+        discount.applyTo,
         discount.minOrder,
         discount.maxDiscount,
         discount.usageLimit,
@@ -638,7 +630,7 @@ router.put("/discounts/:id", requirePermission(PERMISSIONS.DISCOUNTS_MANAGE), as
     const discount = parsed.value;
     const [result] = await db.query(
       `UPDATE discounts
-       SET code = ?, name = ?, discount_type = ?, discount_value = ?, min_order = ?,
+       SET code = ?, name = ?, discount_type = ?, discount_value = ?, apply_to = ?, min_order = ?,
         max_discount = ?, usage_limit = ?, starts_at = ?, expires_at = ?, is_active = ?
        WHERE id = ?`,
       [
@@ -646,6 +638,7 @@ router.put("/discounts/:id", requirePermission(PERMISSIONS.DISCOUNTS_MANAGE), as
         discount.name,
         discount.discountType,
         discount.discountValue,
+        discount.applyTo,
         discount.minOrder,
         discount.maxDiscount,
         discount.usageLimit,
@@ -816,7 +809,7 @@ router.get("/stats", requireAnyPermission([PERMISSIONS.STATS_VIEW, PERMISSIONS.O
 router.get("/orders", requirePermission(PERMISSIONS.ORDERS_MANAGE), async (req, res) => {
   try {
     const [orders] = await db.query(
-      `SELECT id, customer_name, phone, address, note, shipping_fee, total_price, payment_method, payment_status, status, created_at
+      `SELECT id, customer_name, phone, address, note, shipping_fee, discount_code, discount_amount, total_price, payment_method, payment_status, status, created_at
        FROM orders
        ORDER BY created_at DESC`
     );

@@ -228,6 +228,7 @@ async function ensureSchema() {
         name VARCHAR(150) NOT NULL,
         discount_type VARCHAR(20) NOT NULL DEFAULT 'percent',
         discount_value INT NOT NULL,
+        apply_to VARCHAR(20) NOT NULL DEFAULT 'order',
         min_order INT NOT NULL DEFAULT 0,
         max_discount INT DEFAULT NULL,
         usage_limit INT DEFAULT NULL,
@@ -274,6 +275,24 @@ async function ensureSchema() {
     if (error.code !== "ER_DUP_FIELDNAME") {
       console.error("Order shipping fee schema check failed:", error.message);
     }
+  }
+
+  try {
+    await db.query("ALTER TABLE orders ADD COLUMN discount_code VARCHAR(40) DEFAULT NULL");
+  } catch (error) {
+    if (error.code !== "ER_DUP_FIELDNAME") console.error("Order discount code schema check failed:", error.message);
+  }
+
+  try {
+    await db.query("ALTER TABLE orders ADD COLUMN discount_amount INT NOT NULL DEFAULT 0");
+  } catch (error) {
+    if (error.code !== "ER_DUP_FIELDNAME") console.error("Order discount amount schema check failed:", error.message);
+  }
+
+  try {
+    await db.query("ALTER TABLE discounts ADD COLUMN apply_to VARCHAR(20) NOT NULL DEFAULT 'order'");
+  } catch (error) {
+    if (error.code !== "ER_DUP_FIELDNAME") console.error("Discount apply target schema check failed:", error.message);
   }
 
   try {

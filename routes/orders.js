@@ -55,7 +55,7 @@ function normalizeLocation(value) {
 
 function calculateShippingFee(subtotal, address) {
   const amount = Math.max(0, Number(subtotal) || 0);
-  if (amount === 0 || amount >= 200000) return 0;
+  if (amount === 0) return 0;
 
   const city = normalizeLocation(String(address || "").split("|")[0] || address);
 
@@ -73,6 +73,70 @@ function calculateShippingFee(subtotal, address) {
   if (nearProvinces.some(province => city.includes(province))) return 25000;
 
   return 35000;
+}
+
+function normalizeDiscountCode(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
+function calculateDiscountAmount(discount, itemsSubtotal, shippingFee) {
+  if (!discount) return { orderDiscount: 0, shippingDiscount: 0 };
+
+  const applyTo = discount.apply_to || "order";
+  const type = discount.discount_type;
+  const value = Number(discount.discount_value || 0);
+  const maxDiscount = discount.max_discount === null || discount.max_discount === undefined
+    ? null
+    : Number(discount.max_discount);
+  const baseAmount = applyTo === "shipping" ? shippingFee : itemsSubtotal;
+  let amount = 0;
+
+  if (type === "free_shipping") {
+    amount = shippingFee;
+  } else if (type === "fixed") {
+    amount = value;
+  } else if (type === "percent") {
+    amount = Math.floor(baseAmount * value / 100);
+  }
+
+  if (maxDiscount !== null) amount = Math.min(amount, maxDiscount);
+  amount = Math.max(0, Math.min(amount, baseAmount));
+
+  return applyTo === "shipping"
+    ? { orderDiscount: 0, shippingDiscount: amount }
+    : { orderDiscount: amount, shippingDiscount: 0 };
+}
+
+async function findUsableDiscount(code, itemsSubtotal) {
+  const normalizedCode = normalizeDiscountCode(code);
+  if (!normalizedCode) return null;
+
+  const [discounts] = await db.query(
+    `SELECT id, code, name, discount_type, discount_value, apply_to, min_order, max_discount, usage_limit, used_count
+     FROM discounts
+     WHERE code = ?
+       AND is_active = 1
+       AND (starts_at IS NULL OR starts_at <= NOW())
+       AND (expires_at IS NULL OR expires_at > NOW())
+       AND (usage_limit IS NULL OR used_count < usage_limit)
+     LIMIT 1`,
+    [normalizedCode]
+  );
+
+  if (discounts.length === 0) {
+    const error = new Error("Ma giam gia khong hop le hoac da het han");
+    error.status = 400;
+    throw error;
+  }
+
+  const discount = discounts[0];
+  if (itemsSubtotal < Number(discount.min_order || 0)) {
+    const error = new Error(`Don hang can toi thieu ${Number(discount.min_order || 0).toLocaleString("vi-VN")}d de dung ma nay`);
+    error.status = 400;
+    throw error;
+  }
+
+  return discount;
 }
 
 function formatVnpayDate(date) {
@@ -166,6 +230,7 @@ router.post("/", requireAuth, async (req, res) => {
       customerAddress,
       customerNote = "",
       paymentMethod = "cod",
+      discountCode = "",
       items
     } = req.body;
     const normalizedPaymentMethod = String(paymentMethod || "cod").toLowerCase();
@@ -241,7 +306,10 @@ router.post("/", requireAuth, async (req, res) => {
     });
     const itemsSubtotal = orderItems.reduce((sum, item) => sum + item.subtotal, 0);
     const shippingFee = calculateShippingFee(itemsSubtotal, customerAddress);
-    const totalPrice = itemsSubtotal + shippingFee;
+    const discount = await findUsableDiscount(discountCode, itemsSubtotal);
+    const discountAmounts = calculateDiscountAmount(discount, itemsSubtotal, shippingFee);
+    const totalDiscount = discountAmounts.orderDiscount + discountAmounts.shippingDiscount;
+    const totalPrice = Math.max(0, itemsSubtotal + shippingFee - totalDiscount);
     const needsOnlinePayment = ["qr", "vnpay"].includes(normalizedPaymentMethod);
     const paymentStatus = needsOnlinePayment ? "pending" : "unpaid";
     const orderStatus = needsOnlinePayment ? "pending_payment" : "pending";
@@ -250,8 +318,8 @@ router.post("/", requireAuth, async (req, res) => {
 
     const [orderResult] = await connection.query(
       `INSERT INTO orders
-        (user_id, customer_name, phone, address, note, shipping_fee, total_price, payment_method, payment_status, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (user_id, customer_name, phone, address, note, shipping_fee, discount_code, discount_amount, total_price, payment_method, payment_status, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         req.user.id,
         customerName.trim(),
@@ -259,6 +327,8 @@ router.post("/", requireAuth, async (req, res) => {
         customerAddress.trim(),
         customerNote.trim(),
         shippingFee,
+        discount?.code || null,
+        totalDiscount,
         totalPrice,
         normalizedPaymentMethod,
         paymentStatus,
@@ -267,6 +337,9 @@ router.post("/", requireAuth, async (req, res) => {
     );
 
     const orderId = orderResult.insertId;
+    if (discount) {
+      await connection.query("UPDATE discounts SET used_count = used_count + 1 WHERE id = ?", [discount.id]);
+    }
     let paymentSession = null;
     const detailValues = orderItems.map(item => [
       orderId,
@@ -371,6 +444,8 @@ router.post("/", requireAuth, async (req, res) => {
         paymentMethod: normalizedPaymentMethod,
         paymentStatus,
         shippingFee,
+        discountCode: discount?.code || null,
+        discountAmount: totalDiscount,
         totalPrice,
         items: orderItems,
         paymentSession
@@ -403,7 +478,7 @@ router.post("/:id/payment/cancel", requireAuth, async (req, res) => {
     await connection.beginTransaction();
 
     const [orders] = await connection.query(
-      `SELECT id, status, payment_status
+      `SELECT id, status, payment_status, discount_code
        FROM orders
        WHERE id = ? AND user_id = ? AND payment_method = 'qr'
        LIMIT 1
@@ -448,6 +523,12 @@ router.post("/:id/payment/cancel", requireAuth, async (req, res) => {
       "UPDATE payment_sessions SET status = 'cancelled', cancelled_at = NOW() WHERE order_id = ? AND status = 'pending'",
       [orderId]
     );
+    if (order.discount_code) {
+      await connection.query(
+        "UPDATE discounts SET used_count = GREATEST(used_count - 1, 0) WHERE code = ?",
+        [order.discount_code]
+      );
+    }
 
     await connection.commit();
     res.json({ message: "Đã hủy giao dich thanh toan QR" });
@@ -457,6 +538,27 @@ router.post("/:id/payment/cancel", requireAuth, async (req, res) => {
     res.status(500).json({ message: "Lỗi server" });
   } finally {
     connection.release();
+  }
+});
+
+router.post("/discount/preview", requireAuth, async (req, res) => {
+  try {
+    const itemsSubtotal = Math.max(0, Number(req.body.itemsSubtotal || 0));
+    const shippingFee = Math.max(0, Number(req.body.shippingFee || 0));
+    const discount = await findUsableDiscount(req.body.discountCode, itemsSubtotal);
+    const discountAmounts = calculateDiscountAmount(discount, itemsSubtotal, shippingFee);
+    const totalDiscount = discountAmounts.orderDiscount + discountAmounts.shippingDiscount;
+
+    res.json({
+      code: discount.code,
+      name: discount.name,
+      applyTo: discount.apply_to || "order",
+      discountAmount: totalDiscount,
+      orderDiscount: discountAmounts.orderDiscount,
+      shippingDiscount: discountAmounts.shippingDiscount
+    });
+  } catch (error) {
+    res.status(error.status || 500).json({ message: error.message || "Loi server" });
   }
 });
 
@@ -524,7 +626,7 @@ router.get("/", requireAuth, async (req, res) => {
     }
 
     const [orders] = await db.query(
-      `SELECT id, customer_name, phone, address, note, shipping_fee, total_price, payment_method, payment_status, status, created_at
+      `SELECT id, customer_name, phone, address, note, shipping_fee, discount_code, discount_amount, total_price, payment_method, payment_status, status, created_at
        FROM orders
        WHERE ${conditions.join(" AND ")}
        ORDER BY created_at DESC, id DESC`,
@@ -552,7 +654,7 @@ router.get("/:id", requireAuth, async (req, res) => {
     }
 
     const [orders] = await db.query(
-      `SELECT id, customer_name, phone, address, note, shipping_fee, total_price, payment_method, payment_status, status, created_at
+      `SELECT id, customer_name, phone, address, note, shipping_fee, discount_code, discount_amount, total_price, payment_method, payment_status, status, created_at
        FROM orders
        WHERE id = ? AND user_id = ?`,
       [orderId, req.user.id]
