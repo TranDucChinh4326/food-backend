@@ -1464,6 +1464,38 @@ router.put("/users/:id", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISS
   }
 });
 
+router.patch("/users/:id/permissions", requirePermission(PERMISSIONS.ROLES_MANAGE), async (req, res) => {
+  try {
+    const userId = Number(req.params.id);
+    const permissions = Array.isArray(req.body.permissions) ? req.body.permissions : [];
+
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).json({ message: "Ma tai khoan khong hop le" });
+    }
+
+    const [targetUsers] = await db.query("SELECT id, role FROM users WHERE id = ? LIMIT 1", [userId]);
+
+    if (targetUsers.length === 0) {
+      return res.status(404).json({ message: "Khong tim thay tai khoan" });
+    }
+
+    const normalizedRole = String(targetUsers[0].role || "USER").toUpperCase();
+    if (normalizedRole === ADMIN_ROLE || normalizedRole === "USER") {
+      return res.status(403).json({ message: "Chi cap quyen cho tai khoan nhan vien noi bo" });
+    }
+
+    await db.query(
+      "UPDATE users SET permissions = ? WHERE id = ?",
+      [serializePermissions(permissions), userId]
+    );
+
+    res.json({ message: "Da cap nhat phan quyen nhan vien" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Loi server" });
+  }
+});
+
 router.patch("/users/:id/status", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISSIONS.STAFF_MANAGE]), async (req, res) => {
   try {
     const userId = Number(req.params.id);
