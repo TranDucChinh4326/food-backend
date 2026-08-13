@@ -346,6 +346,51 @@ async function ensureSchema() {
     if (error.code !== "ER_DUP_FIELDNAME") console.error("Discount apply target schema check failed:", error.message);
   }
 
+  const discountColumnChecks = [
+    ["discount_type", "ALTER TABLE discounts ADD COLUMN discount_type VARCHAR(20) NOT NULL DEFAULT 'percent'"],
+    ["discount_value", "ALTER TABLE discounts ADD COLUMN discount_value INT NOT NULL DEFAULT 0"],
+    ["min_order", "ALTER TABLE discounts ADD COLUMN min_order INT NOT NULL DEFAULT 0"],
+    ["max_discount", "ALTER TABLE discounts ADD COLUMN max_discount INT DEFAULT NULL"],
+    ["usage_limit", "ALTER TABLE discounts ADD COLUMN usage_limit INT DEFAULT NULL"],
+    ["used_count", "ALTER TABLE discounts ADD COLUMN used_count INT NOT NULL DEFAULT 0"],
+    ["starts_at", "ALTER TABLE discounts ADD COLUMN starts_at TIMESTAMP NULL DEFAULT NULL"],
+    ["expires_at", "ALTER TABLE discounts ADD COLUMN expires_at TIMESTAMP NULL DEFAULT NULL"],
+    ["is_active", "ALTER TABLE discounts ADD COLUMN is_active TINYINT DEFAULT 1"],
+    ["created_at", "ALTER TABLE discounts ADD COLUMN created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP"],
+    ["updated_at", "ALTER TABLE discounts ADD COLUMN updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP"]
+  ];
+
+  for (const [column, statement] of discountColumnChecks) {
+    try {
+      await db.query(statement);
+    } catch (error) {
+      if (error.code !== "ER_DUP_FIELDNAME") {
+        console.error(`Discount ${column} schema check failed:`, error.message);
+      }
+    }
+  }
+
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS user_discounts (
+        id INT NOT NULL AUTO_INCREMENT,
+        user_id INT NOT NULL,
+        discount_id INT NOT NULL,
+        quantity INT NOT NULL DEFAULT 1,
+        used_count INT NOT NULL DEFAULT 0,
+        claimed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY user_discount_once (user_id, discount_id),
+        KEY user_discount_user (user_id),
+        KEY user_discount_discount (discount_id),
+        CONSTRAINT user_discounts_user_fk FOREIGN KEY (user_id) REFERENCES users (id),
+        CONSTRAINT user_discounts_discount_fk FOREIGN KEY (discount_id) REFERENCES discounts (id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+  } catch (error) {
+    console.error("User discount wallet schema check failed:", error.message);
+  }
+
   try {
     await db.query(`
       CREATE TABLE IF NOT EXISTS payment_sessions (
