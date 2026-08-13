@@ -107,7 +107,7 @@ function calculateDiscountAmount(discount, itemsSubtotal, shippingFee) {
     : { orderDiscount: amount, shippingDiscount: 0 };
 }
 
-async function findUsableDiscount(code, itemsSubtotal) {
+async function findUsableDiscount(code, itemsSubtotal, userId = null) {
   const normalizedCode = normalizeDiscountCode(code);
   if (!normalizedCode) return null;
 
@@ -136,10 +136,30 @@ async function findUsableDiscount(code, itemsSubtotal) {
     throw error;
   }
 
+  if (userId) {
+    const [usedRows] = await db.query(
+      `SELECT id
+       FROM orders
+       WHERE user_id = ?
+         AND discount_code = ?
+         AND status <> 'cancelled'
+         AND payment_status NOT IN ('failed', 'cancelled')
+       LIMIT 1`,
+      [userId, discount.code]
+    );
+
+    if (usedRows.length > 0) {
+      const error = new Error("Tai khoan nay da su dung ma giam gia nay");
+      error.status = 400;
+      throw error;
+    }
+  }
+
   return discount;
 }
 
 function mapDiscountRow(row) {
+  const claimedCount = Number(row.claimed_count || 0);
   return {
     id: row.id,
     code: row.code,
@@ -151,7 +171,8 @@ function mapDiscountRow(row) {
     maxDiscount: row.max_discount === null ? null : Number(row.max_discount),
     usageLimit: row.usage_limit === null ? null : Number(row.usage_limit),
     usedCount: Number(row.used_count || 0),
-    remainingGlobal: row.usage_limit === null ? null : Math.max(0, Number(row.usage_limit) - Number(row.used_count || 0)),
+    claimedCount,
+    remainingGlobal: row.usage_limit === null ? null : Math.max(0, Number(row.usage_limit) - claimedCount),
     startsAt: row.starts_at,
     expiresAt: row.expires_at
   };
@@ -379,7 +400,7 @@ router.post("/", requireAuth, async (req, res) => {
     const itemsSubtotal = orderItems.reduce((sum, item) => sum + item.subtotal, 0);
     const shippingFee = calculateShippingFee(itemsSubtotal, customerAddress);
     const ownedDiscount = userDiscountId ? await findOwnedDiscount(req.user.id, userDiscountId, itemsSubtotal) : null;
-    const discount = ownedDiscount || await findUsableDiscount(discountCode, itemsSubtotal);
+    const discount = ownedDiscount || await findUsableDiscount(discountCode, itemsSubtotal, req.user.id);
     const discountAmounts = calculateDiscountAmount(discount, itemsSubtotal, shippingFee);
     const totalDiscount = discountAmounts.orderDiscount + discountAmounts.shippingDiscount;
     const totalPrice = Math.max(0, itemsSubtotal + shippingFee - totalDiscount);
@@ -557,14 +578,20 @@ router.get("/vouchers/available", requireAuth, async (req, res) => {
       `SELECT discounts.id, discounts.code, discounts.name, discounts.discount_type, discounts.discount_value,
               discounts.apply_to, discounts.min_order, discounts.max_discount, discounts.usage_limit,
               discounts.used_count, discounts.starts_at, discounts.expires_at,
+              COALESCE(claim_stats.claimed_count, 0) AS claimed_count,
               COALESCE(user_discounts.quantity - user_discounts.used_count, 0) AS owned_remaining
        FROM discounts
+       LEFT JOIN (
+         SELECT discount_id, COALESCE(SUM(quantity), 0) AS claimed_count
+         FROM user_discounts
+         GROUP BY discount_id
+       ) claim_stats ON claim_stats.discount_id = discounts.id
        LEFT JOIN user_discounts
          ON user_discounts.discount_id = discounts.id AND user_discounts.user_id = ?
        WHERE discounts.is_active = 1
          AND (discounts.starts_at IS NULL OR discounts.starts_at <= NOW())
          AND (discounts.expires_at IS NULL OR discounts.expires_at > NOW())
-         AND (discounts.usage_limit IS NULL OR discounts.used_count < discounts.usage_limit)
+         AND (discounts.usage_limit IS NULL OR COALESCE(claim_stats.claimed_count, 0) < discounts.usage_limit)
        ORDER BY discounts.created_at DESC`,
       [req.user.id]
     );
@@ -611,14 +638,15 @@ router.get("/vouchers/mine", requireAuth, async (req, res) => {
 });
 
 router.post("/vouchers/claim", requireAuth, async (req, res) => {
+  const connection = await db.getConnection();
+
   try {
     const discountId = Number(req.body.discountId || 0);
     const code = normalizeDiscountCode(req.body.code);
     const conditions = [
       "is_active = 1",
       "(starts_at IS NULL OR starts_at <= NOW())",
-      "(expires_at IS NULL OR expires_at > NOW())",
-      "(usage_limit IS NULL OR used_count < usage_limit)"
+      "(expires_at IS NULL OR expires_at > NOW())"
     ];
     const params = [];
 
@@ -632,32 +660,65 @@ router.post("/vouchers/claim", requireAuth, async (req, res) => {
       return res.status(400).json({ message: "Thieu thong tin voucher" });
     }
 
-    const [discounts] = await db.query(
+    await connection.beginTransaction();
+
+    const [discounts] = await connection.query(
       `SELECT id, code, name, discount_type, discount_value, apply_to, min_order, max_discount, usage_limit, used_count
        FROM discounts
        WHERE ${conditions.join(" AND ")}
-       LIMIT 1`,
+       LIMIT 1
+       FOR UPDATE`,
       params
     );
 
     if (discounts.length === 0) {
+      await connection.rollback();
       return res.status(404).json({ message: "Voucher khong kha dung hoac da het han" });
     }
 
     const discount = discounts[0];
-    const [claimResult] = await db.query(
+    const [ownedRows] = await connection.query(
+      "SELECT id FROM user_discounts WHERE user_id = ? AND discount_id = ? LIMIT 1",
+      [req.user.id, discount.id]
+    );
+
+    if (ownedRows.length > 0) {
+      await connection.rollback();
+      return res.status(200).json({
+        message: "Voucher da co trong vi",
+        discount: mapDiscountRow(discount)
+      });
+    }
+
+    if (discount.usage_limit !== null) {
+      const [claimStats] = await connection.query(
+        "SELECT COALESCE(SUM(quantity), 0) AS claimed_count FROM user_discounts WHERE discount_id = ?",
+        [discount.id]
+      );
+      if (Number(claimStats[0]?.claimed_count || 0) >= Number(discount.usage_limit)) {
+        await connection.rollback();
+        return res.status(400).json({ message: "Voucher da het so luong phat hanh" });
+      }
+    }
+
+    await connection.query(
       `INSERT IGNORE INTO user_discounts (user_id, discount_id, quantity)
        VALUES (?, ?, 1)`,
       [req.user.id, discount.id]
     );
 
+    await connection.commit();
+
     res.status(201).json({
-      message: claimResult.affectedRows ? "Da nhan voucher" : "Voucher da co trong vi",
+      message: "Da nhan voucher",
       discount: mapDiscountRow(discount)
     });
   } catch (error) {
+    await connection.rollback();
     console.error(error);
     res.status(500).json({ message: "Loi server" });
+  } finally {
+    connection.release();
   }
 });
 
@@ -738,7 +799,7 @@ router.post("/discount/preview", requireAuth, async (req, res) => {
     const shippingFee = Math.max(0, Number(req.body.shippingFee || 0));
     const discount = req.body.userDiscountId
       ? await findOwnedDiscount(req.user.id, req.body.userDiscountId, itemsSubtotal)
-      : await findUsableDiscount(req.body.discountCode, itemsSubtotal);
+      : await findUsableDiscount(req.body.discountCode, itemsSubtotal, req.user.id);
     const discountAmounts = calculateDiscountAmount(discount, itemsSubtotal, shippingFee);
     const totalDiscount = discountAmounts.orderDiscount + discountAmounts.shippingDiscount;
 

@@ -267,6 +267,22 @@ function validateDiscountPayload(body) {
   };
 }
 
+async function restoreOrderDiscountUsage(connection, order) {
+  if (order.user_discount_id) {
+    await connection.query(
+      "UPDATE user_discounts SET used_count = GREATEST(used_count - 1, 0) WHERE id = ? AND user_id = ?",
+      [order.user_discount_id, order.user_id]
+    );
+  }
+
+  if (order.discount_code) {
+    await connection.query(
+      "UPDATE discounts SET used_count = GREATEST(used_count - 1, 0) WHERE code = ?",
+      [order.discount_code]
+    );
+  }
+}
+
 function publicManagedUser(user) {
   return {
     id: user.id,
@@ -556,30 +572,36 @@ router.get("/discounts", requirePermission(PERMISSIONS.DISCOUNTS_MANAGE), async 
     }
 
     if (status === "active") {
-      where.push("is_active = 1 AND (starts_at IS NULL OR starts_at <= NOW()) AND (expires_at IS NULL OR expires_at > NOW()) AND (usage_limit IS NULL OR used_count < usage_limit)");
+      where.push("discounts.is_active = 1 AND (starts_at IS NULL OR starts_at <= NOW()) AND (expires_at IS NULL OR expires_at > NOW()) AND (usage_limit IS NULL OR COALESCE(claim_stats.claimed_count, 0) < usage_limit)");
     } else if (status === "hidden") {
-      where.push("is_active = 0");
+      where.push("discounts.is_active = 0");
     } else if (status === "expired") {
-      where.push("is_active = 1 AND expires_at IS NOT NULL AND expires_at <= NOW()");
+      where.push("discounts.is_active = 1 AND expires_at IS NOT NULL AND expires_at <= NOW()");
     } else if (status === "scheduled") {
-      where.push("is_active = 1 AND starts_at IS NOT NULL AND starts_at > NOW()");
+      where.push("discounts.is_active = 1 AND starts_at IS NOT NULL AND starts_at > NOW()");
     } else if (status === "soldout") {
-      where.push("usage_limit IS NOT NULL AND used_count >= usage_limit");
+      where.push("usage_limit IS NOT NULL AND COALESCE(claim_stats.claimed_count, 0) >= usage_limit");
     }
 
     const [discounts] = await db.query(
       `SELECT id, code, name, discount_type, discount_value, apply_to, min_order, max_discount,
-        usage_limit, used_count, starts_at, expires_at, is_active, created_at, updated_at,
+        usage_limit, used_count, COALESCE(claim_stats.claimed_count, 0) AS claimed_count,
+        starts_at, expires_at, is_active, created_at, updated_at,
         CASE
-          WHEN is_active = 0 THEN 'hidden'
-          WHEN usage_limit IS NOT NULL AND used_count >= usage_limit THEN 'soldout'
+          WHEN discounts.is_active = 0 THEN 'hidden'
+          WHEN usage_limit IS NOT NULL AND COALESCE(claim_stats.claimed_count, 0) >= usage_limit THEN 'soldout'
           WHEN starts_at IS NOT NULL AND starts_at > NOW() THEN 'scheduled'
           WHEN expires_at IS NOT NULL AND expires_at <= NOW() THEN 'expired'
           ELSE 'active'
         END AS status
        FROM discounts
+       LEFT JOIN (
+         SELECT discount_id, COALESCE(SUM(quantity), 0) AS claimed_count
+         FROM user_discounts
+         GROUP BY discount_id
+       ) claim_stats ON claim_stats.discount_id = discounts.id
        ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
-       ORDER BY created_at DESC, id DESC
+       ORDER BY discounts.created_at DESC, discounts.id DESC
        LIMIT 300`,
       params
     );
@@ -801,8 +823,13 @@ router.get("/stats", requireAnyPermission([PERMISSIONS.STATS_VIEW, PERMISSIONS.O
     const [discountRows] = await db.query(
       `SELECT
         COUNT(*) AS total_discounts,
-        COALESCE(SUM(CASE WHEN is_active = 1 AND (starts_at IS NULL OR starts_at <= NOW()) AND (expires_at IS NULL OR expires_at > NOW()) AND (usage_limit IS NULL OR used_count < usage_limit) THEN 1 ELSE 0 END), 0) AS active_discounts
-       FROM discounts`
+        COALESCE(SUM(CASE WHEN is_active = 1 AND (starts_at IS NULL OR starts_at <= NOW()) AND (expires_at IS NULL OR expires_at > NOW()) AND (usage_limit IS NULL OR COALESCE(claim_stats.claimed_count, 0) < usage_limit) THEN 1 ELSE 0 END), 0) AS active_discounts
+       FROM discounts
+       LEFT JOIN (
+         SELECT discount_id, COALESCE(SUM(quantity), 0) AS claimed_count
+         FROM user_discounts
+         GROUP BY discount_id
+       ) claim_stats ON claim_stats.discount_id = discounts.id`
     );
 
     const [topFoods] = await db.query(
@@ -913,35 +940,54 @@ router.get("/orders", requirePermission(PERMISSIONS.ORDERS_MANAGE), async (req, 
 });
 
 router.patch("/orders/:id/status", requirePermission(PERMISSIONS.ORDERS_MANAGE), async (req, res) => {
+  const connection = await db.getConnection();
+
   try {
     const orderId = Number(req.params.id);
     const { status } = req.body;
     const allowedStatuses = ["pending_payment", "pending", "confirmed", "delivering", "done", "cancelled"];
 
     if (!Number.isInteger(orderId) || orderId <= 0) {
-      return res.status(400).json({ message: "Ma đơn hàng không hợp lệ" });
+      return res.status(400).json({ message: "Ma don hang khong hop le" });
     }
 
     if (!allowedStatuses.includes(status)) {
-      return res.status(400).json({ message: "Trạng thái không hợp lệ" });
+      return res.status(400).json({ message: "Trang thai khong hop le" });
     }
 
-    const [result] = await db.query(
-      "UPDATE orders SET status = ? WHERE id = ?",
-      [status, orderId]
+    await connection.beginTransaction();
+
+    const [orders] = await connection.query(
+      `SELECT id, user_id, status, discount_code, user_discount_id
+       FROM orders
+       WHERE id = ?
+       LIMIT 1
+       FOR UPDATE`,
+      [orderId]
     );
 
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ message: "Không tìm thấy đơn hàng" });
+    if (orders.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ message: "Khong tim thay don hang" });
     }
 
-    res.json({ message: "Cập nhật trạng thái thành công" });
+    const order = orders[0];
+    await connection.query("UPDATE orders SET status = ? WHERE id = ?", [status, orderId]);
+
+    if (status === "cancelled" && order.status !== "cancelled") {
+      await restoreOrderDiscountUsage(connection, order);
+    }
+
+    await connection.commit();
+    res.json({ message: "Cap nhat trang thai thanh cong" });
   } catch (error) {
+    await connection.rollback();
     console.error(error);
-    res.status(500).json({ message: "Lỗi server" });
+    res.status(500).json({ message: "Loi server" });
+  } finally {
+    connection.release();
   }
 });
-
 router.patch("/orders/:id/payment", requirePermission(PERMISSIONS.ORDERS_MANAGE), async (req, res) => {
   try {
     const orderId = Number(req.params.id);
