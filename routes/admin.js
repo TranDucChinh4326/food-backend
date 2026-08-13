@@ -1742,22 +1742,58 @@ router.get("/food-reviews", requirePermission(PERMISSIONS.FEEDBACK_MANAGE), asyn
               food_reviews.user_id,
               food_reviews.rating,
               food_reviews.comment,
+              food_reviews.admin_reply,
+              food_reviews.replied_by,
+              food_reviews.replied_at,
               food_reviews.is_visible,
               food_reviews.created_at,
               foods.name AS food_name,
               foods.image AS food_image,
               COALESCE(users.fullname, users.username, users.email, 'Khach hang') AS customer_name,
               users.email AS customer_email,
-              users.avatar
+              users.avatar,
+              COALESCE(replier.fullname, replier.username, replier.email) AS replied_by_name
        FROM food_reviews
        JOIN foods ON foods.id = food_reviews.food_id
        JOIN users ON users.id = food_reviews.user_id
+       LEFT JOIN users replier ON replier.id = food_reviews.replied_by
        ${whereSql}
        ORDER BY food_reviews.created_at DESC, food_reviews.id DESC`,
       params
     );
 
     res.json(reviews);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Loi server" });
+  }
+});
+
+router.post("/food-reviews/:id/reply", requirePermission(PERMISSIONS.FEEDBACK_MANAGE), async (req, res) => {
+  try {
+    const reviewId = Number(req.params.id);
+    const reply = String(req.body.reply || "").trim();
+
+    if (!Number.isInteger(reviewId) || reviewId <= 0) {
+      return res.status(400).json({ message: "Ma danh gia khong hop le" });
+    }
+
+    if (reply.length < 2 || reply.length > 2000) {
+      return res.status(400).json({ message: "Phan hoi phai tu 2 den 2000 ky tu" });
+    }
+
+    const [result] = await db.query(
+      `UPDATE food_reviews
+       SET admin_reply = ?, replied_by = ?, replied_at = NOW()
+       WHERE id = ?`,
+      [reply, req.user.id, reviewId]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "Khong tim thay danh gia" });
+    }
+
+    res.json({ message: "Da luu phan hoi binh luan" });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Loi server" });

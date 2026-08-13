@@ -151,6 +151,9 @@ CREATE TABLE IF NOT EXISTS food_reviews (
   order_id INT NOT NULL,
   rating TINYINT NOT NULL,
   comment TEXT DEFAULT NULL,
+  admin_reply TEXT DEFAULT NULL,
+  replied_by INT DEFAULT NULL,
+  replied_at TIMESTAMP NULL DEFAULT NULL,
   is_visible TINYINT NOT NULL DEFAULT 1,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
@@ -159,9 +162,11 @@ CREATE TABLE IF NOT EXISTS food_reviews (
   KEY food_review_food (food_id, is_visible, created_at),
   KEY food_review_user (user_id),
   KEY food_review_order (order_id),
+  KEY food_review_replier (replied_by),
   CONSTRAINT food_reviews_food_fk FOREIGN KEY (food_id) REFERENCES foods (id),
   CONSTRAINT food_reviews_user_fk FOREIGN KEY (user_id) REFERENCES users (id),
   CONSTRAINT food_reviews_order_fk FOREIGN KEY (order_id) REFERENCES orders (id),
+  CONSTRAINT food_reviews_replier_fk FOREIGN KEY (replied_by) REFERENCES users (id),
   CONSTRAINT food_reviews_rating_check CHECK (rating BETWEEN 1 AND 5)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

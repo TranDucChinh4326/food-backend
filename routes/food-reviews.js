@@ -26,6 +26,8 @@ function mapReview(row) {
     avatar: row.avatar,
     rating: Number(row.rating),
     comment: row.comment,
+    adminReply: row.admin_reply,
+    repliedAt: row.replied_at,
     createdAt: row.created_at
   };
 }
@@ -57,6 +59,8 @@ router.get("/", async (req, res) => {
               food_reviews.user_id,
               food_reviews.rating,
               food_reviews.comment,
+              food_reviews.admin_reply,
+              food_reviews.replied_at,
               food_reviews.created_at,
               foods.name AS food_name,
               foods.image AS food_image,
@@ -132,6 +136,8 @@ router.post("/", requireAuth, async (req, res) => {
                 food_reviews.user_id,
                 food_reviews.rating,
                 food_reviews.comment,
+                food_reviews.admin_reply,
+                food_reviews.replied_at,
                 food_reviews.created_at,
                 foods.name AS food_name,
                 foods.image AS food_image,

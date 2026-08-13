@@ -78,6 +78,51 @@ app.get("/api/health", (req, res) => {
   });
 });
 
+async function ensureColumn(table, column, sql) {
+  const [rows] = await db.query(
+    `SELECT COUNT(*) AS found
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = ?
+       AND COLUMN_NAME = ?`,
+    [table, column]
+  );
+
+  if (Number(rows[0]?.found || 0) === 0) {
+    await db.query(sql);
+  }
+}
+
+async function ensureIndex(table, indexName, sql) {
+  const [rows] = await db.query(
+    `SELECT COUNT(*) AS found
+     FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = ?
+       AND INDEX_NAME = ?`,
+    [table, indexName]
+  );
+
+  if (Number(rows[0]?.found || 0) === 0) {
+    await db.query(sql);
+  }
+}
+
+async function ensureForeignKey(table, constraintName, sql) {
+  const [rows] = await db.query(
+    `SELECT COUNT(*) AS found
+     FROM information_schema.TABLE_CONSTRAINTS
+     WHERE CONSTRAINT_SCHEMA = DATABASE()
+       AND TABLE_NAME = ?
+       AND CONSTRAINT_NAME = ?`,
+    [table, constraintName]
+  );
+
+  if (Number(rows[0]?.found || 0) === 0) {
+    await db.query(sql);
+  }
+}
+
 async function ensureSchema() {
   try {
     await db.query("ALTER TABLE announcements ADD COLUMN expires_at TIMESTAMP NULL DEFAULT NULL");
@@ -414,6 +459,9 @@ async function ensureSchema() {
         order_id INT NOT NULL,
         rating TINYINT NOT NULL,
         comment TEXT DEFAULT NULL,
+        admin_reply TEXT DEFAULT NULL,
+        replied_by INT DEFAULT NULL,
+        replied_at TIMESTAMP NULL DEFAULT NULL,
         is_visible TINYINT NOT NULL DEFAULT 1,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
@@ -422,13 +470,20 @@ async function ensureSchema() {
         KEY food_review_food (food_id, is_visible, created_at),
         KEY food_review_user (user_id),
         KEY food_review_order (order_id),
+        KEY food_review_replier (replied_by),
         CONSTRAINT food_reviews_food_fk FOREIGN KEY (food_id) REFERENCES foods (id),
         CONSTRAINT food_reviews_user_fk FOREIGN KEY (user_id) REFERENCES users (id),
         CONSTRAINT food_reviews_order_fk FOREIGN KEY (order_id) REFERENCES orders (id),
+        CONSTRAINT food_reviews_replier_fk FOREIGN KEY (replied_by) REFERENCES users (id),
         CONSTRAINT food_reviews_rating_check CHECK (rating BETWEEN 1 AND 5)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
     await db.query("ALTER TABLE food_reviews MODIFY comment TEXT NULL");
+    await ensureColumn("food_reviews", "admin_reply", "ALTER TABLE food_reviews ADD COLUMN admin_reply TEXT DEFAULT NULL AFTER comment");
+    await ensureColumn("food_reviews", "replied_by", "ALTER TABLE food_reviews ADD COLUMN replied_by INT DEFAULT NULL AFTER admin_reply");
+    await ensureColumn("food_reviews", "replied_at", "ALTER TABLE food_reviews ADD COLUMN replied_at TIMESTAMP NULL DEFAULT NULL AFTER replied_by");
+    await ensureIndex("food_reviews", "food_review_replier", "ALTER TABLE food_reviews ADD KEY food_review_replier (replied_by)");
+    await ensureForeignKey("food_reviews", "food_reviews_replier_fk", "ALTER TABLE food_reviews ADD CONSTRAINT food_reviews_replier_fk FOREIGN KEY (replied_by) REFERENCES users (id)");
   } catch (error) {
     console.error("Food reviews schema check failed:", error.message);
   }
