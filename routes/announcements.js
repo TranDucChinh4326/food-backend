@@ -28,14 +28,12 @@ router.get("/archive", async (req, res) => {
   try {
     const [announcements] = await db.query(
       `SELECT id, title, content, is_active, published_at, expires_at,
-        CASE
-          WHEN is_active = 0 THEN 'hidden'
-          WHEN expires_at IS NOT NULL AND expires_at <= NOW() THEN 'expired'
-          WHEN published_at IS NOT NULL AND published_at > NOW() THEN 'scheduled'
-          ELSE 'active'
-        END AS status
+        'active' AS status
        FROM announcements
-       ORDER BY id ASC
+       WHERE is_active = 1
+         AND (published_at IS NULL OR published_at <= NOW())
+         AND (expires_at IS NULL OR expires_at > NOW())
+       ORDER BY COALESCE(published_at, created_at) DESC, id DESC
        LIMIT 200`
     );
 
