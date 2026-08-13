@@ -71,16 +71,6 @@ function normalizeUsername(username) {
     .replace(/\s+/g, "");
 }
 
-function getStrongPasswordError(value) {
-  const password = String(value || "");
-  if (password.length < 8) return "Mat khau phai co it nhat 8 ky tu";
-  if (!/[a-z]/.test(password)) return "Mat khau phai co it nhat 1 chu thuong";
-  if (!/[A-Z]/.test(password)) return "Mat khau phai co it nhat 1 chu hoa";
-  if (!/\d/.test(password)) return "Mat khau phai co it nhat 1 chu so";
-  if (!/[^A-Za-z0-9]/.test(password)) return "Mat khau phai co it nhat 1 ky tu dac biet";
-  return "";
-}
-
 function buildStaffEmail(username) {
   return `${normalizeUsername(username)}@staff.foodhub.local`;
 }
@@ -1369,9 +1359,8 @@ router.post("/users", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISSION
     const blocked = ensureManageAccess(req, res, normalizedRole);
     if (blocked) return;
 
-    const passwordError = getStrongPasswordError(password);
-    if (passwordError) {
-      return res.status(400).json({ message: passwordError });
+    if (String(password || "").length < 6) {
+      return res.status(400).json({ message: "Mat khau toi thieu 6 ky tu" });
     }
 
     if (normalizedUsername && !/^[a-z0-9._-]{3,40}$/.test(normalizedUsername)) {
@@ -1428,9 +1417,8 @@ router.post("/staff", requirePermission(PERMISSIONS.STAFF_MANAGE), async (req, r
       return res.status(400).json({ message: "Vai tro nhan vien khong hop le" });
     }
 
-    const passwordError = getStrongPasswordError(password);
-    if (passwordError) {
-      return res.status(400).json({ message: passwordError });
+    if (String(password || "").length < 6) {
+      return res.status(400).json({ message: "Mat khau toi thieu 6 ky tu" });
     }
 
     if (!/^[a-z0-9._-]{3,40}$/.test(normalizedUsername)) {
@@ -1846,9 +1834,8 @@ router.put("/users/:id/password", requirePermission(PERMISSIONS.PASSWORD_RESET),
       return res.status(400).json({ message: "Ma tài khoản không hợp lệ" });
     }
 
-    const passwordError = getStrongPasswordError(newPassword);
-    if (passwordError) {
-      return res.status(400).json({ message: passwordError });
+    if (String(newPassword || "").length < 6) {
+      return res.status(400).json({ message: "Mat khau moi toi thieu 6 ky tu" });
     }
 
     const [targetUsers] = await db.query("SELECT id, email, role FROM users WHERE id = ?", [userId]);

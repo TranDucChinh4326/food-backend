@@ -165,6 +165,16 @@ function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
 }
 
+function getStrongPasswordError(value) {
+  const password = String(value || "");
+  if (password.length < 8) return "Mật khẩu phải có ít nhất 8 ký tự";
+  if (!/[a-z]/.test(password)) return "Mật khẩu phải có ít nhất 1 chữ thường";
+  if (!/[A-Z]/.test(password)) return "Mật khẩu phải có ít nhất 1 chữ hoa";
+  if (!/\d/.test(password)) return "Mật khẩu phải có ít nhất 1 chữ số";
+  if (!/[^A-Za-z0-9]/.test(password)) return "Mật khẩu phải có ít nhất 1 ký tự đặc biệt";
+  return "";
+}
+
 function normalizeUsername(username) {
   return String(username || "")
     .trim()
@@ -448,12 +458,12 @@ async function createLocalUser({ username, email, password, fullname }) {
     throw error;
   }
 
-  if (password.length < 6) {
-    const error = new Error("Mật khẩu tối thiểu 6 ky tu");
+  const passwordError = getStrongPasswordError(password);
+  if (passwordError) {
+    const error = new Error(passwordError);
     error.status = 400;
     throw error;
   }
-
   const [oldUsers] = await db.query(
     "SELECT id FROM users WHERE username = ? OR email = ? LIMIT 1",
     [normalizedUsername, normalizedEmail]
