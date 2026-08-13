@@ -816,7 +816,7 @@ router.get("/stats", requireAnyPermission([PERMISSIONS.STATS_VIEW, PERMISSIONS.O
 router.get("/orders", requirePermission(PERMISSIONS.ORDERS_MANAGE), async (req, res) => {
   try {
     const [orders] = await db.query(
-      `SELECT id, customer_name, phone, address, note, total_price, payment_method, payment_status, status, created_at
+      `SELECT id, customer_name, phone, address, note, shipping_fee, total_price, payment_method, payment_status, status, created_at
        FROM orders
        ORDER BY created_at DESC`
     );

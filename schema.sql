@@ -115,6 +115,7 @@ CREATE TABLE IF NOT EXISTS orders (
   phone VARCHAR(20) NOT NULL,
   address VARCHAR(255) NOT NULL,
   note TEXT DEFAULT NULL,
+  shipping_fee INT NOT NULL DEFAULT 0,
   total_price INT NOT NULL,
   payment_method VARCHAR(30) NOT NULL DEFAULT 'cod',
   payment_status VARCHAR(30) NOT NULL DEFAULT 'unpaid',

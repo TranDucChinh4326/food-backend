@@ -269,6 +269,14 @@ async function ensureSchema() {
   }
 
   try {
+    await db.query("ALTER TABLE orders ADD COLUMN shipping_fee INT NOT NULL DEFAULT 0");
+  } catch (error) {
+    if (error.code !== "ER_DUP_FIELDNAME") {
+      console.error("Order shipping fee schema check failed:", error.message);
+    }
+  }
+
+  try {
     await db.query(`
       CREATE TABLE IF NOT EXISTS payment_sessions (
         id INT NOT NULL AUTO_INCREMENT,

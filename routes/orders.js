@@ -44,6 +44,37 @@ function buildVietQrUrl({ bankCode, accountNo, accountName, amount, transferCont
   return `https://img.vietqr.io/image/${encodeURIComponent(bankCode)}-${encodeURIComponent(accountNo)}-compact2.png?${query.toString()}`;
 }
 
+function normalizeLocation(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
+    .toLowerCase();
+}
+
+function calculateShippingFee(subtotal, address) {
+  const amount = Math.max(0, Number(subtotal) || 0);
+  if (amount === 0 || amount >= 200000) return 0;
+
+  const city = normalizeLocation(String(address || "").split("|")[0] || address);
+
+  if (city.includes("vinh long")) return 15000;
+
+  const nearProvinces = [
+    "can tho",
+    "dong thap",
+    "tien giang",
+    "ben tre",
+    "tra vinh",
+    "hau giang"
+  ];
+
+  if (nearProvinces.some(province => city.includes(province))) return 25000;
+
+  return 35000;
+}
+
 function formatVnpayDate(date) {
   const pad = value => String(value).padStart(2, "0");
 
@@ -208,7 +239,9 @@ router.post("/", requireAuth, async (req, res) => {
         subtotal: price * item.quantity
       };
     });
-    const totalPrice = orderItems.reduce((sum, item) => sum + item.subtotal, 0);
+    const itemsSubtotal = orderItems.reduce((sum, item) => sum + item.subtotal, 0);
+    const shippingFee = calculateShippingFee(itemsSubtotal, customerAddress);
+    const totalPrice = itemsSubtotal + shippingFee;
     const needsOnlinePayment = ["qr", "vnpay"].includes(normalizedPaymentMethod);
     const paymentStatus = needsOnlinePayment ? "pending" : "unpaid";
     const orderStatus = needsOnlinePayment ? "pending_payment" : "pending";
@@ -217,14 +250,15 @@ router.post("/", requireAuth, async (req, res) => {
 
     const [orderResult] = await connection.query(
       `INSERT INTO orders
-        (user_id, customer_name, phone, address, note, total_price, payment_method, payment_status, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (user_id, customer_name, phone, address, note, shipping_fee, total_price, payment_method, payment_status, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         req.user.id,
         customerName.trim(),
         customerPhone.trim(),
         customerAddress.trim(),
         customerNote.trim(),
+        shippingFee,
         totalPrice,
         normalizedPaymentMethod,
         paymentStatus,
@@ -336,6 +370,7 @@ router.post("/", requireAuth, async (req, res) => {
         status: orderStatus,
         paymentMethod: normalizedPaymentMethod,
         paymentStatus,
+        shippingFee,
         totalPrice,
         items: orderItems,
         paymentSession
@@ -489,7 +524,7 @@ router.get("/", requireAuth, async (req, res) => {
     }
 
     const [orders] = await db.query(
-      `SELECT id, customer_name, phone, address, note, total_price, payment_method, payment_status, status, created_at
+      `SELECT id, customer_name, phone, address, note, shipping_fee, total_price, payment_method, payment_status, status, created_at
        FROM orders
        WHERE ${conditions.join(" AND ")}
        ORDER BY created_at DESC, id DESC`,
@@ -517,7 +552,7 @@ router.get("/:id", requireAuth, async (req, res) => {
     }
 
     const [orders] = await db.query(
-      `SELECT id, customer_name, phone, address, note, total_price, payment_method, payment_status, status, created_at
+      `SELECT id, customer_name, phone, address, note, shipping_fee, total_price, payment_method, payment_status, status, created_at
        FROM orders
        WHERE id = ? AND user_id = ?`,
       [orderId, req.user.id]
