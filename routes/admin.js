@@ -64,6 +64,17 @@ function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
 }
 
+function normalizeUsername(username) {
+  return String(username || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "");
+}
+
+function buildStaffEmail(username) {
+  return `${normalizeUsername(username)}@staff.foodhub.local`;
+}
+
 function getApiBaseUrl(req) {
   return (process.env.API_PUBLIC_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
 }
@@ -312,7 +323,7 @@ function ensureManageAccess(req, res, targetRole = "USER") {
 router.get("/me", requireAuth, async (req, res) => {
   try {
     const [users] = await db.query(
-      "SELECT id, fullname, email, role, permissions, is_active FROM users WHERE id = ? LIMIT 1",
+      "SELECT id, username, fullname, email, role, permissions, is_active FROM users WHERE id = ? LIMIT 1",
       [req.user.id]
     );
 
@@ -327,6 +338,7 @@ router.get("/me", requireAuth, async (req, res) => {
 
     res.json({
       id: user.id,
+      username: user.username,
       fullname: user.fullname,
       email: user.email,
       role: user.role,
@@ -1288,7 +1300,7 @@ router.get("/users", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISSIONS
     }
 
     const [users] = await db.query(
-      `SELECT id, fullname, email, role, permissions, is_active, email_verified, password_set, created_at
+      `SELECT id, username, fullname, email, role, permissions, is_active, email_verified, password_set, created_at
        FROM users
        ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
        ORDER BY created_at DESC, id DESC
@@ -1305,28 +1317,36 @@ router.get("/users", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISSIONS
 
 router.post("/users", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISSIONS.STAFF_MANAGE]), async (req, res) => {
   try {
-    const { fullname, email, password, role = "USER", permissions = [] } = req.body;
-    const normalizedEmail = normalizeEmail(email);
+    const { fullname, username, email, password, role = "USER", permissions = [] } = req.body;
     const normalizedRole = String(role || "USER").trim().toUpperCase();
+    const normalizedUsername = normalizeUsername(username);
+    const normalizedEmail = normalizedRole === "USER" ? normalizeEmail(email) : buildStaffEmail(normalizedUsername);
 
-    if (!fullname || !normalizedEmail || !password) {
-      return res.status(400).json({ message: "Vui lòng nhập họ tên, email va mật khẩu" });
+    if (!fullname || !password || (normalizedRole === "USER" ? !normalizedEmail : !normalizedUsername)) {
+      return res.status(400).json({ message: "Vui long nhap day du thong tin tai khoan" });
     }
 
     if (!MANAGED_ROLES.includes(normalizedRole)) {
-      return res.status(400).json({ message: "Vai tro không hợp lệ" });
+      return res.status(400).json({ message: "Vai tro khong hop le" });
     }
 
     const blocked = ensureManageAccess(req, res, normalizedRole);
     if (blocked) return;
 
     if (password.length < 6) {
-      return res.status(400).json({ message: "Mật khẩu tối thiểu 6 ky tu" });
+      return res.status(400).json({ message: "Mat khau toi thieu 6 ky tu" });
     }
 
-    const [existingUsers] = await db.query("SELECT id FROM users WHERE email = ?", [normalizedEmail]);
+    if (normalizedUsername && !/^[a-z0-9._-]{3,40}$/.test(normalizedUsername)) {
+      return res.status(400).json({ message: "Ten dang nhap chi gom chu thuong, so, dau cham, gach ngang hoac gach duoi va tu 3-40 ky tu" });
+    }
+
+    const [existingUsers] = await db.query(
+      "SELECT id FROM users WHERE email = ? OR (username IS NOT NULL AND username = ?) LIMIT 1",
+      [normalizedEmail, normalizedUsername || null]
+    );
     if (existingUsers.length > 0) {
-      return res.status(409).json({ message: "Email da tồn tại" });
+      return res.status(409).json({ message: normalizedRole === "USER" ? "Email da ton tai" : "Ten dang nhap da ton tai" });
     }
 
     const hashedPassword = await bcrypt.hash(String(password), 10);
@@ -1336,9 +1356,10 @@ router.post("/users", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISSION
 
     const [result] = await db.query(
       `INSERT INTO users
-       (fullname, email, password, password_set, role, permissions, is_active, email_verified, email_verified_at)
-       VALUES (?, ?, ?, 1, ?, ?, 1, 1, NOW())`,
+       (username, fullname, email, password, password_set, role, permissions, is_active, email_verified, email_verified_at)
+       VALUES (?, ?, ?, ?, 1, ?, ?, 1, 1, NOW())`,
       [
+        normalizedRole === "USER" ? null : normalizedUsername,
         String(fullname).trim(),
         normalizedEmail,
         hashedPassword,
@@ -1348,43 +1369,52 @@ router.post("/users", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISSION
     );
     await ensureLocalProvider(result.insertId, normalizedEmail);
 
-    res.status(201).json({ message: "Đã tạo tài khoản", id: result.insertId });
+    res.status(201).json({ message: "Da tao tai khoan", id: result.insertId });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Không thể tạo tài khoản" });
+    res.status(500).json({ message: "Khong the tao tai khoan" });
   }
 });
 
 router.post("/staff", requirePermission(PERMISSIONS.STAFF_MANAGE), async (req, res) => {
   try {
-    const { fullname, email, password, role = "STAFF_SALES", permissions = [] } = req.body;
-    const normalizedEmail = normalizeEmail(email);
-    const normalizedRole = String(role || "").trim().toUpperCase();
+    const { fullname, username, email, password, role = "STAFF_SALES", permissions = [] } = req.body;
+    const normalizedUsername = normalizeUsername(username || email);
+    const normalizedEmail = buildStaffEmail(normalizedUsername);
+    const normalizedRole = String(role || "STAFF_SALES").trim().toUpperCase();
 
-    if (!fullname || !normalizedEmail || !password) {
-      return res.status(400).json({ message: "Vui lòng nhập họ tên, email va mật khẩu" });
+    if (!fullname || !normalizedUsername || !password) {
+      return res.status(400).json({ message: "Vui long nhap ho ten, ten dang nhap va mat khau" });
     }
 
     if (!MANAGED_ROLES.includes(normalizedRole) || normalizedRole === "USER") {
-      return res.status(400).json({ message: "Vai tro nhân viên không hợp lệ" });
+      return res.status(400).json({ message: "Vai tro nhan vien khong hop le" });
     }
 
     if (password.length < 6) {
-      return res.status(400).json({ message: "Mật khẩu tối thiểu 6 ky tu" });
+      return res.status(400).json({ message: "Mat khau toi thieu 6 ky tu" });
     }
 
-    const [oldUsers] = await db.query("SELECT id FROM users WHERE email = ?", [normalizedEmail]);
+    if (!/^[a-z0-9._-]{3,40}$/.test(normalizedUsername)) {
+      return res.status(400).json({ message: "Ten dang nhap chi gom chu thuong, so, dau cham, gach ngang hoac gach duoi va tu 3-40 ky tu" });
+    }
+
+    const [oldUsers] = await db.query(
+      "SELECT id FROM users WHERE email = ? OR username = ? LIMIT 1",
+      [normalizedEmail, normalizedUsername]
+    );
 
     if (oldUsers.length > 0) {
-      return res.status(400).json({ message: "Email da tồn tại" });
+      return res.status(400).json({ message: "Ten dang nhap da ton tai" });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
     const [result] = await db.query(
       `INSERT INTO users
-       (fullname, email, password, password_set, role, permissions, is_active, email_verified, email_verified_at)
-       VALUES (?, ?, ?, 1, ?, ?, 1, 1, NOW())`,
+       (username, fullname, email, password, password_set, role, permissions, is_active, email_verified, email_verified_at)
+       VALUES (?, ?, ?, ?, 1, ?, ?, 1, 1, NOW())`,
       [
+        normalizedUsername,
         String(fullname).trim(),
         normalizedEmail,
         hashedPassword,
@@ -1394,30 +1424,35 @@ router.post("/staff", requirePermission(PERMISSIONS.STAFF_MANAGE), async (req, r
     );
     await ensureLocalProvider(result.insertId, normalizedEmail);
 
-    res.status(201).json({ message: "Đã tạo tài khoản nhân viên", id: result.insertId });
+    res.status(201).json({ message: "Da tao tai khoan nhan vien", id: result.insertId });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Lỗi server" });
+    res.status(500).json({ message: "Loi server" });
   }
 });
 
 router.put("/users/:id", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISSIONS.STAFF_MANAGE]), async (req, res) => {
   try {
     const userId = Number(req.params.id);
-    const { fullname, email, role = "USER", permissions = [] } = req.body;
-    const normalizedEmail = normalizeEmail(email);
+    const { fullname, username, email, role = "USER", permissions = [] } = req.body;
     const normalizedRole = String(role || "USER").trim().toUpperCase();
+    const normalizedUsername = normalizeUsername(username);
+    const normalizedEmail = normalizedRole === "USER" ? normalizeEmail(email) : buildStaffEmail(normalizedUsername);
 
     if (!Number.isInteger(userId) || userId <= 0) {
-      return res.status(400).json({ message: "Ma tài khoản không hợp lệ" });
+      return res.status(400).json({ message: "Ma tai khoan khong hop le" });
     }
 
-    if (!fullname || !normalizedEmail) {
-      return res.status(400).json({ message: "Vui lòng nhập họ tên va email" });
+    if (!fullname || (normalizedRole === "USER" ? !normalizedEmail : !normalizedUsername)) {
+      return res.status(400).json({ message: "Vui long nhap day du thong tin tai khoan" });
     }
 
     if (!MANAGED_ROLES.includes(normalizedRole)) {
-      return res.status(400).json({ message: "Vai tro không hợp lệ" });
+      return res.status(400).json({ message: "Vai tro khong hop le" });
+    }
+
+    if (normalizedUsername && !/^[a-z0-9._-]{3,40}$/.test(normalizedUsername)) {
+      return res.status(400).json({ message: "Ten dang nhap chi gom chu thuong, so, dau cham, gach ngang hoac gach duoi va tu 3-40 ky tu" });
     }
 
     const blocked = ensureManageAccess(req, res, normalizedRole);
@@ -1426,29 +1461,31 @@ router.put("/users/:id", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISS
     const [targetUsers] = await db.query("SELECT id, role, permissions FROM users WHERE id = ?", [userId]);
 
     if (targetUsers.length === 0) {
-      return res.status(404).json({ message: "Không tìm thấy tài khoản" });
+      return res.status(404).json({ message: "Khong tim thay tai khoan" });
     }
 
     const targetBlocked = ensureManageAccess(req, res, targetUsers[0].role);
     if (targetBlocked) return;
 
     const [oldUsers] = await db.query(
-      "SELECT id FROM users WHERE email = ? AND id <> ?",
-      [normalizedEmail, userId]
+      "SELECT id FROM users WHERE (email = ? OR (username IS NOT NULL AND username = ?)) AND id <> ?",
+      [normalizedEmail, normalizedUsername || null, userId]
     );
 
     if (oldUsers.length > 0) {
-      return res.status(400).json({ message: "Email đã được tài khoản khác sử dụng" });
+      return res.status(400).json({ message: normalizedRole === "USER" ? "Email da duoc tai khoan khac su dung" : "Ten dang nhap da duoc tai khoan khac su dung" });
     }
 
     await db.query(
       `UPDATE users
-       SET fullname = ?,
+       SET username = ?,
+           fullname = ?,
            email = ?,
            role = ?,
            permissions = ?
        WHERE id = ?`,
       [
+        normalizedRole === "USER" ? null : normalizedUsername,
         String(fullname).trim(),
         normalizedEmail,
         normalizedRole,
@@ -1457,10 +1494,10 @@ router.put("/users/:id", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISS
       ]
     );
 
-    res.json({ message: "Da cập nhật tài khoản" });
+    res.json({ message: "Da cap nhat tai khoan" });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Lỗi server" });
+    res.status(500).json({ message: "Loi server" });
   }
 });
 
