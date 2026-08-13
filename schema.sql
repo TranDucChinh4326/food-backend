@@ -118,6 +118,7 @@ CREATE TABLE IF NOT EXISTS orders (
   shipping_fee INT NOT NULL DEFAULT 0,
   discount_code VARCHAR(40) DEFAULT NULL,
   discount_amount INT NOT NULL DEFAULT 0,
+  user_discount_id INT DEFAULT NULL,
   total_price INT NOT NULL,
   payment_method VARCHAR(30) NOT NULL DEFAULT 'cod',
   payment_status VARCHAR(30) NOT NULL DEFAULT 'unpaid',
@@ -237,6 +238,21 @@ CREATE TABLE IF NOT EXISTS discounts (
   updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY discount_code (code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS user_discounts (
+  id INT NOT NULL AUTO_INCREMENT,
+  user_id INT NOT NULL,
+  discount_id INT NOT NULL,
+  quantity INT NOT NULL DEFAULT 1,
+  used_count INT NOT NULL DEFAULT 0,
+  claimed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY user_discount_once (user_id, discount_id),
+  KEY user_discount_user (user_id),
+  KEY user_discount_discount (discount_id),
+  CONSTRAINT user_discounts_user_fk FOREIGN KEY (user_id) REFERENCES users (id),
+  CONSTRAINT user_discounts_discount_fk FOREIGN KEY (discount_id) REFERENCES discounts (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS advertisements (

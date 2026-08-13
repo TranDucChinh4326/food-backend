@@ -290,6 +290,12 @@ async function ensureSchema() {
   }
 
   try {
+    await db.query("ALTER TABLE orders ADD COLUMN user_discount_id INT DEFAULT NULL");
+  } catch (error) {
+    if (error.code !== "ER_DUP_FIELDNAME") console.error("Order user discount schema check failed:", error.message);
+  }
+
+  try {
     await db.query("ALTER TABLE discounts ADD COLUMN apply_to VARCHAR(20) NOT NULL DEFAULT 'order'");
   } catch (error) {
     if (error.code !== "ER_DUP_FIELDNAME") console.error("Discount apply target schema check failed:", error.message);

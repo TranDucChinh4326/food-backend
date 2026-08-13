@@ -92,7 +92,8 @@ async function applyVnpayResult(params) {
     await connection.beginTransaction();
 
     const [sessions] = await connection.query(
-      `SELECT payment_sessions.id, payment_sessions.amount, payment_sessions.status
+      `SELECT payment_sessions.id, payment_sessions.amount, payment_sessions.status,
+              orders.user_id, orders.discount_code, orders.user_discount_id
        FROM payment_sessions
        JOIN orders ON orders.id = payment_sessions.order_id
        WHERE payment_sessions.order_id = ? AND payment_sessions.method = 'vnpay'
@@ -146,6 +147,20 @@ async function applyVnpayResult(params) {
         [session.id]
       );
     } else {
+      if (session.status === "pending") {
+        if (session.user_discount_id) {
+          await connection.query(
+            "UPDATE user_discounts SET used_count = GREATEST(used_count - 1, 0) WHERE id = ? AND user_id = ?",
+            [session.user_discount_id, session.user_id]
+          );
+        }
+        if (session.discount_code) {
+          await connection.query(
+            "UPDATE discounts SET used_count = GREATEST(used_count - 1, 0) WHERE code = ?",
+            [session.discount_code]
+          );
+        }
+      }
       await connection.query(
         "UPDATE orders SET payment_status = 'failed' WHERE id = ?",
         [orderId]
