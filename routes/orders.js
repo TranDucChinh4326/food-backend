@@ -44,39 +44,6 @@ function buildVietQrUrl({ bankCode, accountNo, accountName, amount, transferCont
   return `https://img.vietqr.io/image/${encodeURIComponent(bankCode)}-${encodeURIComponent(accountNo)}-compact2.png?${query.toString()}`;
 }
 
-function normalizeLocation(value) {
-  return String(value || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/đ/g, "d")
-    .replace(/Đ/g, "D")
-    .toLowerCase();
-}
-
-function calculateShippingFee(subtotal, address) {
-  // Tính phí giao hàng từ tổng tiền món và tỉnh/thành trong địa chỉ.
-  // Output được cộng vào đơn hàng và truyền tiếp sang logic voucher freeship.
-  const amount = Math.max(0, Number(subtotal) || 0);
-  if (amount === 0) return 0;
-
-  const city = normalizeLocation(String(address || "").split("|")[0] || address);
-
-  if (city.includes("vinh long")) return 15000;
-
-  const nearProvinces = [
-    "can tho",
-    "dong thap",
-    "tien giang",
-    "ben tre",
-    "tra vinh",
-    "hau giang"
-  ];
-
-  if (nearProvinces.some(province => city.includes(province))) return 25000;
-
-  return 35000;
-}
-
 async function getActiveShippingMethods(connection = db) {
   const [methods] = await connection.query(
     `SELECT id, name, description, fee, estimated_time, sort_order, is_active
@@ -88,7 +55,7 @@ async function getActiveShippingMethods(connection = db) {
   return methods;
 }
 
-async function resolveShippingMethod(shippingMethodId, itemsSubtotal, customerAddress, connection = db) {
+async function resolveShippingMethod(shippingMethodId, connection = db) {
   const methods = await getActiveShippingMethods(connection);
   const selectedId = Number(shippingMethodId || 0);
   const selected = methods.find(method => Number(method.id) === selectedId) || methods[0] || null;
@@ -102,12 +69,9 @@ async function resolveShippingMethod(shippingMethodId, itemsSubtotal, customerAd
     };
   }
 
-  return {
-    id: null,
-    name: "Giao hàng",
-    fee: calculateShippingFee(itemsSubtotal, customerAddress),
-    estimatedTime: ""
-  };
+  const error = new Error("Chưa có hình thức giao hàng khả dụng. Vui lòng cấu hình phí vận chuyển trong trang quản trị.");
+  error.status = 400;
+  throw error;
 }
 
 function normalizeDiscountCode(value) {
@@ -459,7 +423,7 @@ router.post("/", requireAuth, async (req, res) => {
       };
     });
     const itemsSubtotal = orderItems.reduce((sum, item) => sum + item.subtotal, 0);
-    const shippingMethod = await resolveShippingMethod(shippingMethodId, itemsSubtotal, customerAddress, connection);
+    const shippingMethod = await resolveShippingMethod(shippingMethodId, connection);
     const shippingFee = shippingMethod.fee;
     const ownedDiscount = userDiscountId ? await findOwnedDiscount(req.user.id, userDiscountId, itemsSubtotal) : null;
     const discount = ownedDiscount || await findUsableDiscount(discountCode, itemsSubtotal, req.user.id);
@@ -865,10 +829,8 @@ router.post("/discount/preview", requireAuth, async (req, res) => {
   // Frontend gọi để tính thử voucher trên tiền món/phí ship trước khi tạo đơn thật.
   try {
     const itemsSubtotal = Math.max(0, Number(req.body.itemsSubtotal || 0));
-    const shippingMethod = req.body.shippingMethodId
-      ? await resolveShippingMethod(req.body.shippingMethodId, itemsSubtotal, "")
-      : null;
-    const shippingFee = shippingMethod ? shippingMethod.fee : Math.max(0, Number(req.body.shippingFee || 0));
+    const shippingMethod = await resolveShippingMethod(req.body.shippingMethodId);
+    const shippingFee = shippingMethod.fee;
     const discount = req.body.userDiscountId
       ? await findOwnedDiscount(req.user.id, req.body.userDiscountId, itemsSubtotal)
       : await findUsableDiscount(req.body.discountCode, itemsSubtotal, req.user.id);
