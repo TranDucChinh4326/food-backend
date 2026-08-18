@@ -968,7 +968,7 @@ router.patch("/orders/:id/status", requirePermission(PERMISSIONS.ORDERS_MANAGE),
     await connection.beginTransaction();
 
     const [orders] = await connection.query(
-      `SELECT id, user_id, status, discount_code, user_discount_id
+      `SELECT id, user_id, status, payment_method, payment_status, discount_code, user_discount_id
        FROM orders
        WHERE id = ?
        LIMIT 1
@@ -982,7 +982,25 @@ router.patch("/orders/:id/status", requirePermission(PERMISSIONS.ORDERS_MANAGE),
     }
 
     const order = orders[0];
-    await connection.query("UPDATE orders SET status = ? WHERE id = ?", [status, orderId]);
+    let nextPaymentStatus = null;
+
+    if (status === "done" && order.payment_method === "cod" && order.payment_status !== "paid") {
+      nextPaymentStatus = "paid";
+    } else if (
+      status === "cancelled"
+      && !["paid", "refunded", "cancelled"].includes(order.payment_status)
+    ) {
+      nextPaymentStatus = "cancelled";
+    }
+
+    if (nextPaymentStatus) {
+      await connection.query(
+        "UPDATE orders SET status = ?, payment_status = ? WHERE id = ?",
+        [status, nextPaymentStatus, orderId]
+      );
+    } else {
+      await connection.query("UPDATE orders SET status = ? WHERE id = ?", [status, orderId]);
+    }
 
     if (status === "cancelled" && order.status !== "cancelled") {
       await restoreOrderDiscountUsage(connection, order);
