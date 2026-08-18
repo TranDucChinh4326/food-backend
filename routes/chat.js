@@ -100,12 +100,41 @@ function getKeywords(message) {
   const stopWords = new Set([
     "mon", "an", "do", "gia", "bao", "nhieu", "tien", "co", "khong", "hom", "nay",
     "toi", "tui", "minh", "muon", "can", "hoi", "cho", "xin", "hay", "nao", "nhe",
-    "foodhub", "cua", "la", "mot", "cai", "phan"
+    "foodhub", "cua", "la", "mot", "cai", "phan", "giup", "lua", "nha"
   ]);
 
   return slugify(message)
     .split("-")
     .filter(word => word.length >= 2 && !stopWords.has(word));
+}
+
+function getTokens(message) {
+  return slugify(message).split("-").filter(Boolean);
+}
+
+function hasAnyToken(tokens, values) {
+  return values.some(value => tokens.includes(value));
+}
+
+function getTasteKeywords(tokens) {
+  const tasteMap = {
+    cay: ["cay"],
+    ngot: ["ngot"],
+    chua: ["chua"],
+    man: ["man"],
+    nuoc: ["nuoc", "sup", "canh", "pho", "bun", "mi"]
+  };
+
+  const excluded = new Set();
+  if (tokens.includes("dung") || tokens.includes("khong")) {
+    Object.entries(tasteMap).forEach(([taste, words]) => {
+      if (words.some(word => tokens.includes(word))) excluded.add(taste);
+    });
+  }
+
+  return Object.entries(tasteMap)
+    .filter(([taste, words]) => !excluded.has(taste) && words.some(word => tokens.includes(word)))
+    .flatMap(([, words]) => words);
 }
 
 function getBudget(message) {
@@ -121,7 +150,7 @@ function getBudget(message) {
 }
 
 async function findFoods(message, options = {}) {
-  const keywords = getKeywords(message);
+  const keywords = options.keywords || getKeywords(message);
   const where = ["foods.is_active = 1"];
   const params = [];
 
@@ -246,6 +275,8 @@ async function getOrderReply(userId, message) {
 
 async function buildReply(message, userId) {
   const normalized = slugify(message);
+  const tokens = getTokens(message);
+  const tasteKeywords = getTasteKeywords(tokens);
 
   if (hasIntent(normalized, [/^xin-chao|^chao|hello|hi|alo|tu-van|ho-tro/])) {
     return "Chào bạn, mình có thể hỗ trợ tìm món, hỏi giá, danh mục, món bán chạy, khuyến mãi, giao hàng, phí ship, trạng thái đơn và giỏ hàng.";
@@ -276,6 +307,13 @@ async function buildReply(message, userId) {
     return discounts.length
       ? `Hiện FoodHub đang có các ưu đãi:\n${discounts.map(formatDiscountLine).join("\n")}`
       : "Hiện chưa có khuyến mãi đang hoạt động trong hệ thống.";
+  }
+
+  if (tasteKeywords.length) {
+    const foods = await findFoods(message, { inStock: true, keywords: tasteKeywords, limit: 5 });
+    return foods.length
+      ? `Mình gợi ý các món hợp khẩu vị bạn hỏi:\n${foods.map(formatFoodLine).join("\n")}`
+      : "Mình chưa tìm thấy món phù hợp với khẩu vị đó trong dữ liệu hiện tại.";
   }
 
   if (hasIntent(normalized, [/ban-chay|best|hot|nhieu-nguoi|pho-bien|mon-ngon|goi-y|an-gi/])) {
@@ -310,7 +348,10 @@ async function buildReply(message, userId) {
       : "Mình chưa tìm thấy món phù hợp với mức giá đó trong dữ liệu hiện tại.";
   }
 
-  if (hasIntent(normalized, [/danh-muc|loai-mon|nhom-mon|do-uong|nuoc|tra|ca-phe|sinh-to|nuoc-ep|do-an|com|pho|bun|mi|pizza|burger|ga/])) {
+  if (
+    hasIntent(normalized, [/danh-muc|loai-mon|nhom-mon|do-uong|nuoc-ep|do-an/]) ||
+    hasAnyToken(tokens, ["nuoc", "tra", "ca", "phe", "sinh", "to", "com", "pho", "bun", "mi", "pizza", "burger", "ga"])
+  ) {
     const foods = await findFoods(message, { inStock: true, limit: 5 });
     return foods.length
       ? `Mình tìm thấy các món thuộc nhóm bạn hỏi:\n${foods.map(formatFoodLine).join("\n")}`
