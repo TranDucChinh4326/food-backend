@@ -165,14 +165,30 @@ async function findFoods(message, options = {}) {
   }
 
   if (keywords.length) {
-    const keywordClauses = keywords.map(() => (
-      "(foods.name LIKE ? OR foods.description LIKE ? OR categories.name LIKE ? OR parent_categories.name LIKE ?)"
-    ));
-    where.push(`(${keywordClauses.join(" OR ")})`);
-    keywords.forEach(keyword => {
-      const value = `%${escapeLike(keyword)}%`;
-      params.push(value, value, value, value);
-    });
+    if (options.matchTaste) {
+      const keywordClauses = keywords.map(() => (
+        "(LOWER(foods.name) COLLATE utf8mb4_bin REGEXP ? OR LOWER(COALESCE(foods.description, '')) COLLATE utf8mb4_bin REGEXP ?)"
+      ));
+      where.push(`(${keywordClauses.join(" OR ")})`);
+      keywords.forEach(keyword => {
+        const pattern = `(^|[^a-z0-9])${escapeLike(keyword)}([^a-z0-9]|$)`;
+        params.push(pattern, pattern);
+      });
+
+      if (keywords.includes("cay")) {
+        where.push("LOWER(COALESCE(foods.description, '')) COLLATE utf8mb4_bin NOT REGEXP ?");
+        params.push("trai[[:space:]-]*cay");
+      }
+    } else {
+      const keywordClauses = keywords.map(() => (
+        "(foods.name LIKE ? OR foods.description LIKE ? OR categories.name LIKE ? OR parent_categories.name LIKE ?)"
+      ));
+      where.push(`(${keywordClauses.join(" OR ")})`);
+      keywords.forEach(keyword => {
+        const value = `%${escapeLike(keyword)}%`;
+        params.push(value, value, value, value);
+      });
+    }
   }
 
   if (options.maxPrice) {
@@ -310,7 +326,7 @@ async function buildReply(message, userId) {
   }
 
   if (tasteKeywords.length) {
-    const foods = await findFoods(message, { inStock: true, keywords: tasteKeywords, limit: 5 });
+    const foods = await findFoods(message, { inStock: true, keywords: tasteKeywords, matchTaste: true, limit: 5 });
     return foods.length
       ? `Mình gợi ý các món hợp khẩu vị bạn hỏi:\n${foods.map(formatFoodLine).join("\n")}`
       : "Mình chưa tìm thấy món phù hợp với khẩu vị đó trong dữ liệu hiện tại.";
