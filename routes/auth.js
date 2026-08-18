@@ -187,7 +187,8 @@ function normalizeUsername(username) {
 }
 
 function shouldExposeVerificationUrl(emailSent) {
-  return !emailSent || process.env.EMAIL_DEBUG_LINK === "true";
+  const isLocalDev = process.env.NODE_ENV !== "production";
+  return isLocalDev && (!emailSent || process.env.EMAIL_DEBUG_LINK === "true");
 }
 
 function createPasswordCaptchaCode() {
