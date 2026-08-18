@@ -220,9 +220,11 @@ async function findFoods(message, options = {}) {
      LEFT JOIN categories ON categories.id = foods.category_id
      LEFT JOIN categories parent_categories ON parent_categories.id = categories.parent_id
      LEFT JOIN (
-       SELECT food_id, COALESCE(SUM(quantity), 0) AS sold_count
+       SELECT order_details.food_id, COALESCE(SUM(order_details.quantity), 0) AS sold_count
        FROM order_details
-       GROUP BY food_id
+       INNER JOIN orders ON orders.id = order_details.order_id
+       WHERE orders.status = 'done'
+       GROUP BY order_details.food_id
      ) sales ON sales.food_id = foods.id
      WHERE ${where.join(" AND ")}
      ORDER BY ${orderBy}
