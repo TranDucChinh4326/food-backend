@@ -3,6 +3,9 @@ const router = express.Router();
 const db = require("../db");
 
 router.get("/", async (req, res) => {
+    // GET /api/foods
+    // Trả danh sách món đang bán cho menu/detail/chatbot, kèm danh mục, tồn kho, số đã bán và điểm đánh giá.
+    // Query ưu tiên schema danh mục mới; nếu môi trường cũ thiếu cột thì fallback để frontend vẫn tải được món.
     try {
         let foods;
 
@@ -96,6 +99,8 @@ router.get("/", async (req, res) => {
 });
 
 router.get("/categories", async (req, res) => {
+    // GET /api/foods/categories
+    // Trả cây danh mục công khai để frontend dựng menu điều hướng và bộ lọc món ăn/đồ uống.
     try {
         let categories;
 

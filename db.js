@@ -2,6 +2,8 @@ const mysql = require("mysql2");
 
 const useSsl = String(process.env.DB_SSL || "").toLowerCase() === "true";
 
+// Pool kết nối MySQL dùng chung cho toàn bộ backend.
+// Input lấy từ biến môi trường; output là Promise API để các route gọi db.query/db.getConnection.
 const db = mysql.createPool({
   host: process.env.DB_HOST || "localhost",
   port: Number(process.env.DB_PORT || 3306),

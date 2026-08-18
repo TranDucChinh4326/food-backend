@@ -1,3 +1,4 @@
+-- Migration bổ sung trường thanh toán/ship/voucher cho bảng orders.
 USE foodhub_db;
 
 ALTER TABLE orders

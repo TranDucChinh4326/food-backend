@@ -4,6 +4,8 @@ const db = require("../db");
 const router = express.Router();
 
 router.get("/", async (req, res) => {
+  // GET /api/announcements
+  // Trả một số thông báo đang hiệu lực để frontend hiển thị nhanh ở trang chủ/header.
   try {
     const limit = Math.min(Math.max(Number(req.query.limit) || 6, 1), 20);
     const [announcements] = await db.query(
@@ -25,6 +27,8 @@ router.get("/", async (req, res) => {
 });
 
 router.get("/archive", async (req, res) => {
+  // GET /api/announcements/archive
+  // Trả danh sách thông báo đầy đủ hơn cho trang thông báo công khai.
   try {
     const [announcements] = await db.query(
       `SELECT id, title, content, is_active, published_at, expires_at,

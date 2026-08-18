@@ -18,6 +18,8 @@ const allowedPreviewSuffixes = (process.env.CORS_PREVIEW_SUFFIX || ".food-shop-b
   .filter(Boolean);
 
 function isAllowedOrigin(origin) {
+  // Kiểm tra CORS cho frontend local/production.
+  // Input là Origin của trình duyệt; output quyết định request có được phép gọi API hay không.
   if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
     return true;
   }
@@ -80,6 +82,8 @@ app.get("/api/health", (req, res) => {
 });
 
 async function ensureColumn(table, column, sql) {
+  // Thêm cột còn thiếu khi server khởi động mà không xóa dữ liệu cũ.
+  // Các lần deploy/dev database lệch schema sẽ được vá nhẹ trước khi route nhận request.
   const [rows] = await db.query(
     `SELECT COUNT(*) AS found
      FROM information_schema.COLUMNS
@@ -125,6 +129,8 @@ async function ensureForeignKey(table, constraintName, sql) {
 }
 
 async function ensureSchema() {
+  // Đồng bộ schema tối thiểu cho các bảng nghiệp vụ: auth, địa chỉ, voucher, thanh toán, chat, đánh giá.
+  // Hàm này bổ trợ schema.sql/migrations để môi trường đang chạy không bị lỗi thiếu cột/bảng.
   try {
     await db.query("ALTER TABLE announcements ADD COLUMN expires_at TIMESTAMP NULL DEFAULT NULL");
     console.log("Added announcements.expires_at column");

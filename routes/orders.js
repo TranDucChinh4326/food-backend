@@ -54,6 +54,8 @@ function normalizeLocation(value) {
 }
 
 function calculateShippingFee(subtotal, address) {
+  // Tính phí giao hàng từ tổng tiền món và tỉnh/thành trong địa chỉ.
+  // Output được cộng vào đơn hàng và truyền tiếp sang logic voucher freeship.
   const amount = Math.max(0, Number(subtotal) || 0);
   if (amount === 0) return 0;
 
@@ -80,6 +82,8 @@ function normalizeDiscountCode(value) {
 }
 
 function calculateDiscountAmount(discount, itemsSubtotal, shippingFee) {
+  // Tính số tiền giảm từ cấu hình voucher trong Database.
+  // Hàm tách giảm trên đơn và giảm phí ship để frontend/backend hiển thị đúng từng phần.
   if (!discount) return { orderDiscount: 0, shippingDiscount: 0 };
 
   const applyTo = discount.apply_to || "order";
@@ -108,6 +112,8 @@ function calculateDiscountAmount(discount, itemsSubtotal, shippingFee) {
 }
 
 async function findUsableDiscount(code, itemsSubtotal, userId = null) {
+  // Kiểm tra mã giảm giá nhập tay còn hiệu lực, còn lượt dùng và đạt giá trị đơn tối thiểu.
+  // Nếu userId có giá trị, hàm còn kiểm tra người dùng đã dùng mã này chưa để tránh dùng lặp.
   const normalizedCode = normalizeDiscountCode(code);
   if (!normalizedCode) return null;
 
@@ -313,6 +319,9 @@ async function getItemsByOrderIds(orderIds) {
 }
 
 router.post("/", requireAuth, async (req, res) => {
+  // POST /api/orders
+  // Tạo đơn hàng từ giỏ hàng frontend: validate giao hàng, kiểm tồn kho, áp voucher,
+  // trừ tồn kho và tạo phiên thanh toán nếu khách chọn QR/VNPay. Các thao tác ghi DB chạy trong transaction.
   const connection = await db.getConnection();
 
   try {
@@ -360,6 +369,7 @@ router.post("/", requireAuth, async (req, res) => {
     }
 
     const demandByFoodId = normalizedItems.reduce((map, item) => {
+      // Gom số lượng theo foodId để kiểm tồn kho chính xác khi payload có nhiều dòng cùng một món.
       map[item.foodId] = (map[item.foodId] || 0) + item.quantity;
       return map;
     }, {});
@@ -723,6 +733,8 @@ router.post("/vouchers/claim", requireAuth, async (req, res) => {
 });
 
 router.post("/:id/payment/cancel", requireAuth, async (req, res) => {
+  // POST /api/orders/:id/payment/cancel
+  // Chỉ chính chủ đơn QR chưa thanh toán mới được hủy; khi hủy sẽ hoàn tồn kho và trả lại lượt voucher.
   const connection = await db.getConnection();
 
   try {
@@ -794,6 +806,8 @@ router.post("/:id/payment/cancel", requireAuth, async (req, res) => {
 });
 
 router.post("/discount/preview", requireAuth, async (req, res) => {
+  // POST /api/orders/discount/preview
+  // Frontend gọi để tính thử voucher trên tiền món/phí ship trước khi tạo đơn thật.
   try {
     const itemsSubtotal = Math.max(0, Number(req.body.itemsSubtotal || 0));
     const shippingFee = Math.max(0, Number(req.body.shippingFee || 0));

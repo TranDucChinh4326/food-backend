@@ -1,3 +1,4 @@
+-- Migration tạo bảng phản hồi khách hàng để admin tiếp nhận và trả lời.
 CREATE TABLE IF NOT EXISTS customer_feedback (
   id INT NOT NULL AUTO_INCREMENT,
   user_id INT NOT NULL,

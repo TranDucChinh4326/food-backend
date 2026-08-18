@@ -1,3 +1,4 @@
+-- Migration tạo cây danh mục món ăn/đồ uống để admin và frontend lọc món theo nhóm cha-con.
 ALTER TABLE categories ADD COLUMN IF NOT EXISTS slug VARCHAR(120) DEFAULT NULL;
 ALTER TABLE categories ADD COLUMN IF NOT EXISTS type VARCHAR(20) NOT NULL DEFAULT 'food';
 ALTER TABLE categories ADD COLUMN IF NOT EXISTS parent_id INT DEFAULT NULL;

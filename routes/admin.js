@@ -85,6 +85,8 @@ function getImageExtension(mimetype) {
 }
 
 async function saveFoodImageFile(req, file) {
+  // Lưu ảnh món ăn do admin upload.
+  // Nếu có Cloudinary thì trả URL cloud; nếu không có thì lưu local trong uploads để frontend dùng lại.
   if (hasCloudinaryConfig) {
     const uploadResult = await new Promise((resolve, reject) => {
       const stream = cloudinary.uploader.upload_stream(
@@ -232,6 +234,8 @@ function parseNullablePositiveNumber(value) {
 }
 
 function validateDiscountPayload(body) {
+  // Chuẩn hóa dữ liệu voucher từ form admin trước khi ghi Database.
+  // Output là { value } hợp lệ hoặc { error } để endpoint trả lỗi 400 rõ ràng cho frontend.
   const code = normalizeDiscountCode(body.code);
   const name = String(body.name || "").trim();
   const discountType = String(body.discountType || body.discount_type || "percent").trim().toLowerCase();
@@ -268,6 +272,8 @@ function validateDiscountPayload(body) {
 }
 
 async function restoreOrderDiscountUsage(connection, order) {
+  // Hoàn lượt voucher khi đơn bị hủy.
+  // Hàm chạy trong transaction của đơn hàng để user_discounts và discounts không bị lệch số lượng.
   if (order.user_discount_id) {
     await connection.query(
       "UPDATE user_discounts SET used_count = GREATEST(used_count - 1, 0) WHERE id = ? AND user_id = ?",
@@ -750,6 +756,8 @@ router.delete("/discounts/:id", requirePermission(PERMISSIONS.DISCOUNTS_MANAGE),
 });
 
 router.get("/stats", requireAnyPermission([PERMISSIONS.STATS_VIEW, PERMISSIONS.ORDERS_MANAGE]), async (req, res) => {
+  // GET /api/admin/stats
+  // Tổng hợp doanh thu, số đơn, top món, danh mục và phản hồi cho dashboard quản trị.
   try {
     const from = String(req.query.from || "").trim();
     const to = String(req.query.to || "").trim();
@@ -940,6 +948,8 @@ router.get("/orders", requirePermission(PERMISSIONS.ORDERS_MANAGE), async (req, 
 });
 
 router.patch("/orders/:id/status", requirePermission(PERMISSIONS.ORDERS_MANAGE), async (req, res) => {
+  // PATCH /api/admin/orders/:id/status
+  // Admin cập nhật trạng thái đơn; khi hủy đơn hệ thống hoàn lại voucher đã dùng.
   const connection = await db.getConnection();
 
   try {
@@ -1246,6 +1256,8 @@ router.post("/foods/image", requirePermission(PERMISSIONS.FOODS_MANAGE), (req, r
 });
 
 router.post("/foods", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req, res) => {
+  // POST /api/admin/foods
+  // Tạo món mới từ màn hình quản trị. Dữ liệu này được menu, chatbot và thống kê sử dụng làm nguồn chính.
   try {
     const { name, categoryId, price, stockQuantity, description = "", image = "", isActive = 1 } = req.body;
     const normalizedImage = String(image || "").trim();

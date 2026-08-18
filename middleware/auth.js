@@ -18,6 +18,8 @@ const PERMISSIONS = {
 };
 
 function parsePermissions(value) {
+  // Chuẩn hóa permissions từ Database để middleware luôn xử lý trên mảng quyền.
+  // Input có thể là JSON string/mảng; output dùng cho hasPermission và giao diện admin.
   if (!value) return [];
 
   try {
@@ -43,6 +45,8 @@ function hasPermission(user, permission) {
 }
 
 async function hydrateUser(req, res) {
+  // Nạp lại thông tin user từ Database sau khi JWT hợp lệ.
+  // Cần bước này để trạng thái khóa tài khoản và quyền admin luôn cập nhật theo dữ liệu hiện tại.
   const [users] = await db.query(
     "SELECT id, fullname, email, role, permissions, is_active FROM users WHERE id = ? LIMIT 1",
     [req.user.id]
@@ -78,6 +82,8 @@ function getToken(req) {
 }
 
 function requireAuth(req, res, next) {
+  // Bảo vệ API cần đăng nhập: đọc Bearer token, xác minh JWT và gắn payload vào req.user.
+  // Các middleware phân quyền sẽ dùng req.user ở bước tiếp theo để truy vấn Database.
   const token = getToken(req);
 
   if (!token) {
@@ -111,6 +117,8 @@ function requireAdmin(req, res, next) {
 }
 
 function requirePermission(permission) {
+  // Tạo middleware kiểm tra một quyền cụ thể của nhân viên/admin.
+  // Input là mã quyền nghiệp vụ; output là Express middleware trả 403 nếu tài khoản không đủ quyền.
   return (req, res, next) => {
     requireAuth(req, res, async () => {
       try {
@@ -151,6 +159,8 @@ function requireAnyPermission(permissions) {
 }
 
 function optionalAuth(req, res, next) {
+  // Cho phép API chạy cả khi không đăng nhập, nhưng vẫn nhận diện user nếu token hợp lệ.
+  // Chatbot dùng middleware này để lưu session theo user khi có đăng nhập và vẫn hỗ trợ khách vãng lai.
   const token = getToken(req);
 
   if (!token) {

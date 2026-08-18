@@ -1,3 +1,4 @@
+-- Migration bổ sung username/avatar/provider để hỗ trợ đăng nhập local và social.
 ALTER TABLE users ADD COLUMN username VARCHAR(80) DEFAULT NULL;
 ALTER TABLE users ADD COLUMN avatar VARCHAR(500) DEFAULT NULL;
 ALTER TABLE users ADD UNIQUE KEY username (username);

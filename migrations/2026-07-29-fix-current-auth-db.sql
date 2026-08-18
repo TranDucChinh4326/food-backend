@@ -1,3 +1,4 @@
+-- Migration chuẩn hóa lại schema auth hiện tại và bảo toàn dữ liệu user/provider đang dùng.
 START TRANSACTION;
 
 ALTER TABLE users DROP COLUMN full_name;

@@ -1,3 +1,4 @@
+-- Migration dọn dữ liệu test nhưng giữ tài khoản admin chính để môi trường demo sạch hơn.
 START TRANSACTION;
 
 CREATE TEMPORARY TABLE keep_users AS

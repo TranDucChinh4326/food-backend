@@ -46,6 +46,8 @@ if (hasCloudinaryConfig) {
 }
 
 function signToken(user) {
+  // Tạo JWT sau khi đăng nhập/đăng ký thành công.
+  // Token chứa id/email/role để frontend gửi lại trong Authorization header cho API riêng tư.
   return jwt.sign(
     { id: user.id, email: user.email, role: user.role },
     JWT_SECRET,
@@ -54,6 +56,8 @@ function signToken(user) {
 }
 
 function publicUser(user) {
+  // Chuyển bản ghi users thành object an toàn trả về frontend.
+  // Hàm loại bỏ password/hash và chuẩn hóa avatar, quyền, trạng thái đăng nhập.
   const username = user.username || null;
   const hasPassword = Boolean(user.password_set ?? true);
   const isAdmin = String(user.role || "").toUpperCase() === "ADMIN";
@@ -208,6 +212,8 @@ function cleanupPasswordCaptchas() {
 }
 
 async function createEmailVerification(userId) {
+  // Sinh token xác minh email, chỉ lưu hash vào Database.
+  // Output là URL gửi cho người dùng; backend không lưu token thô để giảm rủi ro lộ dữ liệu.
   const token = crypto.randomBytes(32).toString("hex");
   const tokenHash = hashToken(token);
 
@@ -224,6 +230,8 @@ async function createEmailVerification(userId) {
 }
 
 async function sendVerificationEmail(email, fullname, verificationUrl) {
+  // Gửi email xác minh qua Resend nếu môi trường có API key.
+  // Nếu chưa cấu hình mail, hàm trả false để luồng dev vẫn có thể hiển thị link xác minh.
   if (!process.env.RESEND_API_KEY || !process.env.MAIL_FROM) {
     return false;
   }
@@ -256,6 +264,8 @@ async function sendVerificationEmail(email, fullname, verificationUrl) {
 }
 
 async function findProviderUser(provider, providerId) {
+  // Tìm user đã liên kết Google/Facebook bằng provider_user_id.
+  // Social login dùng hàm này để quyết định đăng nhập ngay hay yêu cầu tạo tài khoản FoodHub.
   const [accounts] = await db.query(
     `SELECT users.*
      FROM user_auth_providers
@@ -269,6 +279,8 @@ async function findProviderUser(provider, providerId) {
 }
 
 async function createAuthProvider(userId, { provider, providerId, email }) {
+  // Ghi quan hệ giữa tài khoản FoodHub và provider đăng nhập.
+  // Dữ liệu này cho phép một user đăng nhập bằng local, Google hoặc Facebook mà vẫn dùng chung hồ sơ.
   const normalizedProvider = String(provider || "").trim().toLowerCase();
   const normalizedProviderId = String(providerId || "").trim();
   const normalizedEmail = normalizeEmail(email);

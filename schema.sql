@@ -1,3 +1,4 @@
+-- Danh mục món ăn/đồ uống. parent_id tạo cây danh mục cha-con để frontend render menu và admin lọc nhóm món.
 CREATE TABLE IF NOT EXISTS categories (
   id INT NOT NULL AUTO_INCREMENT,
   name VARCHAR(100) NOT NULL,
@@ -13,6 +14,7 @@ CREATE TABLE IF NOT EXISTS categories (
   CONSTRAINT categories_parent_fk FOREIGN KEY (parent_id) REFERENCES categories (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Bảng món ăn là nguồn dữ liệu chính cho menu, giỏ hàng, chatbot và thống kê.
 CREATE TABLE IF NOT EXISTS foods (
   id INT NOT NULL AUTO_INCREMENT,
   name VARCHAR(150) NOT NULL,
@@ -29,6 +31,7 @@ CREATE TABLE IF NOT EXISTS foods (
   CONSTRAINT foods_category_fk FOREIGN KEY (category_id) REFERENCES categories (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Tài khoản khách hàng/nhân viên/admin. role và permissions được middleware auth dùng để phân quyền API.
 CREATE TABLE IF NOT EXISTS users (
   id INT NOT NULL AUTO_INCREMENT,
   username VARCHAR(80) DEFAULT NULL,
@@ -108,6 +111,7 @@ CREATE TABLE IF NOT EXISTS user_addresses (
   CONSTRAINT user_addresses_user_fk FOREIGN KEY (user_id) REFERENCES users (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Đơn hàng tổng: lưu thông tin giao hàng, phí ship, voucher, phương thức thanh toán và trạng thái xử lý.
 CREATE TABLE IF NOT EXISTS orders (
   id INT NOT NULL AUTO_INCREMENT,
   user_id INT DEFAULT NULL,
@@ -129,6 +133,7 @@ CREATE TABLE IF NOT EXISTS orders (
   CONSTRAINT orders_user_fk FOREIGN KEY (user_id) REFERENCES users (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Chi tiết từng món trong đơn. Dữ liệu này dùng cho lịch sử đơn, hoàn tồn kho và tính món bán chạy.
 CREATE TABLE IF NOT EXISTS order_details (
   id INT NOT NULL AUTO_INCREMENT,
   order_id INT NOT NULL,
@@ -225,6 +230,7 @@ CREATE TABLE IF NOT EXISTS announcements (
   PRIMARY KEY (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Voucher công khai do admin tạo. Backend kiểm tra thời gian hiệu lực, số lượt phát hành và điều kiện đơn tối thiểu.
 CREATE TABLE IF NOT EXISTS discounts (
   id INT NOT NULL AUTO_INCREMENT,
   code VARCHAR(40) NOT NULL,
@@ -245,6 +251,7 @@ CREATE TABLE IF NOT EXISTS discounts (
   UNIQUE KEY discount_code (code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Voucher mà từng người dùng đã sở hữu. quantity/used_count quyết định còn bao nhiêu lượt dùng trong giỏ hàng.
 CREATE TABLE IF NOT EXISTS user_discounts (
   id INT NOT NULL AUTO_INCREMENT,
   user_id INT NOT NULL,
@@ -277,6 +284,7 @@ CREATE TABLE IF NOT EXISTS advertisements (
   KEY advertisement_position (position)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Phản hồi trải nghiệm của khách hàng, được admin đọc, phân loại trạng thái và trả lời.
 CREATE TABLE IF NOT EXISTS customer_feedback (
   id INT NOT NULL AUTO_INCREMENT,
   user_id INT NOT NULL,
@@ -298,6 +306,7 @@ CREATE TABLE IF NOT EXISTS customer_feedback (
   CONSTRAINT customer_feedback_replier_fk FOREIGN KEY (replied_by) REFERENCES users (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Phiên chat của chatbot. session_id đến từ frontend, user_id gắn vào khi khách đã đăng nhập.
 CREATE TABLE IF NOT EXISTS chat_sessions (
   session_id VARCHAR(120) NOT NULL,
   user_id INT DEFAULT NULL,
@@ -308,6 +317,7 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
   CONSTRAINT chat_sessions_user_fk FOREIGN KEY (user_id) REFERENCES users (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Tin nhắn chat theo phiên. sender phân biệt user/bot để frontend khôi phục đúng lịch sử hội thoại.
 CREATE TABLE IF NOT EXISTS chat_messages (
   message_id INT NOT NULL AUTO_INCREMENT,
   session_id VARCHAR(120) NOT NULL,

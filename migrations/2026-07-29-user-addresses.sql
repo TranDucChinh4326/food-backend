@@ -1,3 +1,4 @@
+-- Migration tạo bảng địa chỉ giao hàng đã lưu cho từng user.
 CREATE TABLE IF NOT EXISTS user_addresses (
   id INT NOT NULL AUTO_INCREMENT,
   user_id INT NOT NULL,

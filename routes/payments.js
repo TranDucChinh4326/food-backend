@@ -29,6 +29,8 @@ function getWebhookSecret(req) {
 }
 
 function normalizeTransaction(body) {
+  // Chuẩn hóa payload webhook từ nhiều nhà cung cấp về một format nội bộ.
+  // Output gồm mã giao dịch, nội dung chuyển khoản, số tiền và rawPayload để đối soát/lưu log.
   const data = body.data || body.transaction || body;
   const content = data.content || data.description || data.transfer_content || data.transactionContent || "";
   const amount = data.amount || data.transferAmount || data.creditAmount || data.money || data.value;
@@ -50,6 +52,8 @@ function sortObject(input) {
 }
 
 function verifyVnpayParams(query) {
+  // Xác minh chữ ký VNPay bằng secret backend.
+  // Nếu chữ ký sai, backend không cập nhật trạng thái thanh toán để tránh giả mạo callback.
   const secureHash = query.vnp_SecureHash;
   const hashSecret = process.env.VNPAY_HASH_SECRET || "";
 
@@ -74,6 +78,8 @@ function getFrontendUrl() {
 }
 
 async function applyVnpayResult(params) {
+  // Áp dụng kết quả trả về từ VNPay cho đơn hàng.
+  // Hàm kiểm chữ ký, mã đơn, số tiền và cập nhật payment_sessions/orders trong transaction.
   if (!verifyVnpayParams(params)) {
     return { ok: false, code: "97", message: "Invalid signature" };
   }

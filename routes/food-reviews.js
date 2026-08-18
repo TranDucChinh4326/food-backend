@@ -14,6 +14,8 @@ function normalizeComment(value) {
 }
 
 function mapReview(row) {
+  // Map row SQL sang format frontend đang dùng.
+  // Hàm này tách tên món, user, avatar và phản hồi admin ra object ổn định cho UI.
   return {
     id: row.id,
     foodId: row.food_id,
@@ -33,6 +35,8 @@ function mapReview(row) {
 }
 
 router.get("/", async (req, res) => {
+  // GET /api/food-reviews
+  // Trả đánh giá hiển thị công khai, có thể lọc theo foodId/rating cho trang chi tiết món.
   try {
     const foodId = Number(req.query.foodId || 0);
     const rating = normalizeRating(req.query.rating);
@@ -85,6 +89,8 @@ router.get("/", async (req, res) => {
 });
 
 router.post("/", requireAuth, async (req, res) => {
+  // POST /api/food-reviews
+  // Người dùng chỉ được đánh giá món có trong đơn của chính họ để tránh review giả hoặc review hộ người khác.
   try {
     const foodId = Number(req.body.foodId);
     const orderId = Number(req.body.orderId);

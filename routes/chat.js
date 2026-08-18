@@ -35,6 +35,9 @@ function normalizeSessionId(value) {
 }
 
 async function ensureChatSession(sessionId, userId) {
+  // Tạo hoặc cập nhật phiên chat trước khi lưu tin nhắn.
+  // Input là sessionId từ frontend và userId nếu đã đăng nhập; output là bản ghi chat_sessions hợp lệ.
+  // Bước kiểm tra owner ngăn người dùng dùng lại sessionId của tài khoản khác để đọc/lưu lịch sử chat.
   await db.query(
     `INSERT INTO chat_sessions (session_id, user_id)
      VALUES (?, ?)
@@ -57,6 +60,8 @@ async function ensureChatSession(sessionId, userId) {
 }
 
 async function saveChatMessage(sessionId, sender, message) {
+  // Lưu từng tin nhắn user/bot vào Database để lần mở chat sau có thể tải lại lịch sử.
+  // Hàm này liên kết với GET /api/chat/:sessionId/messages ở cuối file.
   await db.query(
     "INSERT INTO chat_messages (session_id, sender, message) VALUES (?, ?, ?)",
     [sessionId, sender, String(message || "").slice(0, 4000)]
@@ -150,6 +155,9 @@ function getBudget(message) {
 }
 
 async function findFoods(message, options = {}) {
+  // Truy vấn món ăn thật từ Database theo ý định đã phân tích.
+  // Input gồm câu hỏi gốc và options lọc như còn hàng, giá, khẩu vị, danh mục, món ăn/đồ uống.
+  // Output là danh sách món kèm danh mục và số lượng đã bán để chatbot trả lời không bịa dữ liệu.
   const keywords = options.keywords || getKeywords(message);
   const where = ["foods.is_active = 1"];
   const params = [];
@@ -220,6 +228,7 @@ async function findFoods(message, options = {}) {
      LEFT JOIN categories ON categories.id = foods.category_id
      LEFT JOIN categories parent_categories ON parent_categories.id = categories.parent_id
      LEFT JOIN (
+       -- Số lượng bán chạy chỉ tính đơn đã hoàn tất để không tính nhầm đơn hủy hoặc đang chờ xử lý.
        SELECT order_details.food_id, COALESCE(SUM(order_details.quantity), 0) AS sold_count
        FROM order_details
        INNER JOIN orders ON orders.id = order_details.order_id
@@ -236,6 +245,8 @@ async function findFoods(message, options = {}) {
 }
 
 async function getActiveDiscounts(limit = 5) {
+  // Lấy voucher/khuyến mãi đang có hiệu lực từ Database.
+  // Chatbot dùng dữ liệu này khi khách hỏi khuyến mãi, thay vì tự tạo mã giảm giá.
   const [discounts] = await db.query(
     `SELECT code, name, discount_type, discount_value, apply_to, min_order, max_discount, expires_at
      FROM discounts
@@ -263,6 +274,8 @@ function formatDiscountLine(discount, index) {
 }
 
 async function getOrderReply(userId, message) {
+  // Trả lời trạng thái đơn hàng cá nhân.
+  // Chỉ truy vấn orders theo userId đang đăng nhập để không lộ đơn của tài khoản khác.
   if (!userId) {
     return "Bạn cần đăng nhập để mình kiểm tra trạng thái đơn hàng cá nhân.";
   }
@@ -296,6 +309,9 @@ async function getOrderReply(userId, message) {
 }
 
 async function buildReply(message, userId) {
+  // Bộ định tuyến ý định của chatbot.
+  // Input là tin nhắn khách hàng; output là câu trả lời đã lấy dữ liệu từ Database hoặc hướng dẫn thao tác.
+  // Các nhánh quan trọng: đơn hàng, cửa hàng, giao hàng, giỏ hàng, voucher, khẩu vị, bán chạy, món mới và giá.
   const normalized = slugify(message);
   const tokens = getTokens(message);
   const tasteKeywords = getTasteKeywords(tokens);
@@ -395,6 +411,9 @@ async function buildReply(message, userId) {
 }
 
 router.post("/", optionalAuth, async (req, res) => {
+  // POST /api/chat
+  // Frontend gửi { message, sessionId }; backend kiểm tra dữ liệu, lưu hội thoại và trả { success, sessionId, message }.
+  // API key/AI nếu có trong tương lai phải nằm ở backend, không đưa ra frontend.
   try {
     const message = String(req.body?.message || "").trim();
     const sessionId = normalizeSessionId(req.body?.sessionId);
@@ -428,6 +447,9 @@ router.post("/", optionalAuth, async (req, res) => {
 });
 
 router.get("/:sessionId/messages", optionalAuth, async (req, res) => {
+  // GET /api/chat/:sessionId/messages
+  // Tải 50 tin nhắn gần nhất của phiên chat để khôi phục hội thoại trên frontend.
+  // Nếu session thuộc user khác, API trả 403 để bảo vệ lịch sử chat cá nhân.
   try {
     const sessionId = normalizeSessionId(req.params.sessionId);
     const [sessions] = await db.query(

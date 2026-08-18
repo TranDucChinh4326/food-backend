@@ -1,3 +1,4 @@
+-- Migration bổ sung phản hồi admin và ẩn/hiện cho đánh giá món ăn.
 ALTER TABLE food_reviews
   ADD COLUMN admin_reply TEXT DEFAULT NULL AFTER comment,
   ADD COLUMN replied_by INT DEFAULT NULL AFTER admin_reply,

@@ -7,6 +7,8 @@ const router = express.Router();
 const FEEDBACK_CATEGORIES = ["general", "order", "food", "delivery", "payment", "account"];
 
 function normalizeFeedbackPayload(body) {
+  // Chuẩn hóa phản hồi từ frontend trước khi lưu.
+  // Input là body form; output là dữ liệu hợp lệ hoặc error để tránh lưu rating/category/content sai.
   const rating = Number(body.rating);
   const category = String(body.category || "general").trim().toLowerCase();
   const title = String(body.title || "").trim();
@@ -39,6 +41,8 @@ function normalizeFeedbackPayload(body) {
 }
 
 router.get("/", requireAuth, async (req, res) => {
+  // GET /api/feedback
+  // Trả danh sách phản hồi của chính user đang đăng nhập, không đọc dữ liệu của tài khoản khác.
   try {
     const [feedback] = await db.query(
       `SELECT id, rating, category, title, content, status, admin_reply, replied_at, created_at, updated_at
@@ -56,6 +60,8 @@ router.get("/", requireAuth, async (req, res) => {
 });
 
 router.post("/", requireAuth, async (req, res) => {
+  // POST /api/feedback
+  // Lưu phản hồi khách hàng vào customer_feedback để admin xử lý và trả lời sau.
   try {
     const normalized = normalizeFeedbackPayload(req.body);
     if (normalized.error) {

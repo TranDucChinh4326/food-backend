@@ -26,6 +26,8 @@ if (hasCloudinaryConfig) {
 }
 
 const adImageUpload = multer({
+  // Upload ảnh quảng cáo vào memory để có thể đẩy lên Cloudinary hoặc ghi file local sau khi validate.
+  // Giới hạn dung lượng giúp tránh request quá lớn làm ảnh hưởng API.
   storage: multer.memoryStorage(),
   limits: {
     fileSize: 2 * 1024 * 1024
@@ -59,6 +61,8 @@ function getImageExtension(mimetype) {
 }
 
 async function saveAdvertisementImageFile(req, file) {
+  // Lưu ảnh quảng cáo do admin upload.
+  // Output là URL ảnh dùng cho banner nổi ngoài frontend; ưu tiên Cloudinary nếu có cấu hình.
   if (hasCloudinaryConfig) {
     const uploadResult = await new Promise((resolve, reject) => {
       const stream = cloudinary.uploader.upload_stream(
@@ -160,6 +164,8 @@ function validateAdvertisementPayload(req, res, next) {
 }
 
 router.get("/", async (req, res) => {
+  // GET /api/advertisements
+  // Trả banner quảng cáo đang hoạt động cho frontend công khai theo thời gian hiệu lực.
   try {
     const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 50);
     const [advertisements] = await db.query(
@@ -181,6 +187,8 @@ router.get("/", async (req, res) => {
 });
 
 router.get("/admin", requirePermission(PERMISSIONS.ADS_MANAGE), async (req, res) => {
+  // GET /api/advertisements/admin
+  // Admin xem/lọc toàn bộ quảng cáo, bao gồm trạng thái hidden/scheduled/expired.
   try {
     const q = String(req.query.q || "").trim();
     const position = VALID_POSITIONS.has(req.query.position) ? req.query.position : "all";
