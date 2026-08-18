@@ -229,6 +229,24 @@ async function createEmailVerification(userId) {
   return `${getFrontendUrl()}/verify-email.html?token=${token}`;
 }
 
+async function createPasswordReset(userId) {
+  // Tạo link đặt lại mật khẩu cho người quên mật khẩu ở trang đăng nhập.
+  // Token thật gửi qua email, Database chỉ lưu hash và thời hạn để tránh lộ token nếu DB bị đọc.
+  const token = crypto.randomBytes(32).toString("hex");
+  const tokenHash = hashToken(token);
+
+  await db.query(
+    "DELETE FROM password_reset_tokens WHERE user_id = ? AND used_at IS NULL",
+    [userId]
+  );
+  await db.query(
+    "INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 30 MINUTE))",
+    [userId, tokenHash]
+  );
+
+  return `${getFrontendUrl()}/reset-password.html?token=${token}`;
+}
+
 async function sendVerificationEmail(email, fullname, verificationUrl) {
   // Gửi email xác minh qua Resend nếu môi trường có API key.
   // Nếu chưa cấu hình mail, hàm trả false để luồng dev vẫn có thể hiển thị link xác minh.
@@ -258,6 +276,41 @@ async function sendVerificationEmail(email, fullname, verificationUrl) {
   if (!response.ok) {
     const errorBody = await response.text();
     throw new Error(`Không gửi được email xác thực: ${errorBody}`);
+  }
+
+  return true;
+}
+
+async function sendPasswordResetEmail(email, fullname, resetUrl) {
+  // Gửi email chứa link đặt lại mật khẩu.
+  // Nếu môi trường chưa cấu hình Resend, hàm trả false để backend có thể trả debug link khi dev.
+  if (!process.env.RESEND_API_KEY || !process.env.MAIL_FROM) {
+    return false;
+  }
+
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      from: process.env.MAIL_FROM,
+      to: email,
+      subject: "Dat lai mat khau FoodHub",
+      html: `
+        <p>Chao ${String(fullname || "ban")},</p>
+        <p>FoodHub nhan duoc yeu cau dat lai mat khau cho tai khoan cua ban.</p>
+        <p>Bam vao lien ket ben duoi de tao mat khau moi:</p>
+        <p><a href="${resetUrl}">${resetUrl}</a></p>
+        <p>Lien ket het han sau 30 phut. Neu ban khong yeu cau, hay bo qua email nay.</p>
+      `
+    })
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Khong gui duoc email dat lai mat khau: ${errorBody}`);
   }
 
   return true;
@@ -655,6 +708,97 @@ router.post("/resend-verification", async (req, res) => {
         : "Đã tạo lai link xác thực.",
       verificationUrl: shouldExposeVerificationUrl(emailSent) ? verificationUrl : undefined
     });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Lỗi server" });
+  }
+});
+
+router.post("/forgot-password", async (req, res) => {
+  // POST /api/auth/forgot-password
+  // Nhận email và gửi link reset nếu tài khoản hợp lệ. Response luôn chung chung để không lộ email có tồn tại hay không.
+  try {
+    const normalizedEmail = normalizeEmail(req.body.email);
+    const genericMessage = "Nếu email tồn tại, FoodHub đã gửi hướng dẫn đặt lại mật khẩu.";
+
+    if (!normalizedEmail) {
+      return res.status(400).json({ message: "Vui lòng nhập email." });
+    }
+
+    const [users] = await db.query(
+      "SELECT id, fullname, email, is_active FROM users WHERE email = ? LIMIT 1",
+      [normalizedEmail]
+    );
+
+    if (users.length === 0 || !users[0].is_active) {
+      return res.json({ message: genericMessage });
+    }
+
+    const resetUrl = await createPasswordReset(users[0].id);
+    let emailSent = false;
+
+    try {
+      emailSent = await sendPasswordResetEmail(normalizedEmail, users[0].fullname, resetUrl);
+    } catch (mailError) {
+      console.error(mailError);
+    }
+
+    res.json({
+      message: emailSent ? genericMessage : "Đã tạo link đặt lại mật khẩu.",
+      resetUrl: shouldExposeVerificationUrl(emailSent) ? resetUrl : undefined
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Lỗi server" });
+  }
+});
+
+router.post("/reset-password", async (req, res) => {
+  // POST /api/auth/reset-password
+  // Nhận token từ email và mật khẩu mới; nếu token còn hạn/chưa dùng thì cập nhật password đã hash.
+  try {
+    const token = String(req.body.token || "").trim();
+    const password = String(req.body.password || "");
+    const confirmPassword = String(req.body.confirmPassword || "");
+
+    if (!token) {
+      return res.status(400).json({ message: "Thiếu mã đặt lại mật khẩu." });
+    }
+
+    if (password !== confirmPassword) {
+      return res.status(400).json({ message: "Mật khẩu xác nhận không khớp." });
+    }
+
+    const passwordError = getStrongPasswordError(password);
+    if (passwordError) {
+      return res.status(400).json({ message: passwordError });
+    }
+
+    const [tokens] = await db.query(
+      `SELECT password_reset_tokens.id, password_reset_tokens.user_id, users.is_active
+       FROM password_reset_tokens
+       JOIN users ON users.id = password_reset_tokens.user_id
+       WHERE password_reset_tokens.token_hash = ?
+         AND password_reset_tokens.used_at IS NULL
+         AND password_reset_tokens.expires_at > NOW()
+       LIMIT 1`,
+      [hashToken(token)]
+    );
+
+    if (tokens.length === 0 || !tokens[0].is_active) {
+      return res.status(400).json({ message: "Link đặt lại mật khẩu không hợp lệ hoặc đã hết hạn." });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    await db.query(
+      "UPDATE users SET password = ?, password_set = 1 WHERE id = ?",
+      [hashedPassword, tokens[0].user_id]
+    );
+    await db.query("UPDATE password_reset_tokens SET used_at = NOW() WHERE id = ?", [
+      tokens[0].id
+    ]);
+
+    res.json({ message: "Đặt lại mật khẩu thành công. Bạn có thể đăng nhập bằng mật khẩu mới." });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Lỗi server" });
