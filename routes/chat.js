@@ -164,6 +164,10 @@ async function findFoods(message, options = {}) {
     params.push(value, value, value, value);
   }
 
+  if (options.foodOnly) {
+    where.push("COALESCE(parent_categories.type, categories.type, '') <> 'drink'");
+  }
+
   if (keywords.length) {
     if (options.matchTaste) {
       const keywordClauses = keywords.map(() => (
@@ -333,7 +337,9 @@ async function buildReply(message, userId) {
   }
 
   if (hasIntent(normalized, [/ban-chay|best|hot|nhieu-nguoi|pho-bien|mon-ngon|goi-y|an-gi/])) {
-    const foods = await findFoods(message, { inStock: true, orderBy: "sold", limit: 5 });
+    const foodOnly = hasIntent(normalized, [/mon-an|do-an/]) || (tokens.includes("mon") && tokens.includes("an"));
+    const topOnly = hasAnyToken(tokens, ["nhat", "top1"]) || normalized.includes("top-1");
+    const foods = await findFoods(message, { inStock: true, orderBy: "sold", foodOnly, limit: topOnly ? 1 : 5 });
     return foods.length
       ? `Các món đang bán chạy:\n${foods.map(formatFoodLine).join("\n")}`
       : "Hiện chưa có dữ liệu món bán chạy phù hợp.";
