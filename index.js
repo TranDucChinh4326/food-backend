@@ -349,6 +349,44 @@ async function ensureSchema() {
   }
 
   try {
+    await db.query("ALTER TABLE orders ADD COLUMN shipping_method_id INT DEFAULT NULL");
+  } catch (error) {
+    if (error.code !== "ER_DUP_FIELDNAME") console.error("Order shipping method id schema check failed:", error.message);
+  }
+
+  try {
+    await db.query("ALTER TABLE orders ADD COLUMN shipping_method_name VARCHAR(120) DEFAULT NULL");
+  } catch (error) {
+    if (error.code !== "ER_DUP_FIELDNAME") console.error("Order shipping method name schema check failed:", error.message);
+  }
+
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS shipping_methods (
+        id INT NOT NULL AUTO_INCREMENT,
+        name VARCHAR(120) NOT NULL,
+        description VARCHAR(255) DEFAULT NULL,
+        fee INT NOT NULL DEFAULT 0,
+        estimated_time VARCHAR(80) DEFAULT NULL,
+        sort_order INT NOT NULL DEFAULT 0,
+        is_active TINYINT NOT NULL DEFAULT 1,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    await db.query(`
+      INSERT IGNORE INTO shipping_methods
+        (id, name, description, fee, estimated_time, sort_order, is_active)
+      VALUES
+        (1, 'Giao hàng thường', 'Phù hợp khi khách không cần nhận gấp.', 15000, '30-45 phút', 1, 1),
+        (2, 'Giao hàng nhanh', 'Ưu tiên xử lý và giao sớm hơn.', 25000, '15-25 phút', 2, 1)
+    `);
+  } catch (error) {
+    console.error("Shipping method schema check failed:", error.message);
+  }
+
+  try {
     await db.query("ALTER TABLE orders ADD COLUMN discount_code VARCHAR(40) DEFAULT NULL");
   } catch (error) {
     if (error.code !== "ER_DUP_FIELDNAME") console.error("Order discount code schema check failed:", error.message);

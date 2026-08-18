@@ -138,6 +138,8 @@ CREATE TABLE IF NOT EXISTS orders (
   discount_code VARCHAR(40) DEFAULT NULL,
   discount_amount INT NOT NULL DEFAULT 0,
   user_discount_id INT DEFAULT NULL,
+  shipping_method_id INT DEFAULT NULL,
+  shipping_method_name VARCHAR(120) DEFAULT NULL,
   total_price INT NOT NULL,
   payment_method VARCHAR(30) NOT NULL DEFAULT 'cod',
   payment_status VARCHAR(30) NOT NULL DEFAULT 'unpaid',
@@ -162,6 +164,19 @@ CREATE TABLE IF NOT EXISTS order_details (
   KEY food_id (food_id),
   CONSTRAINT order_details_order_fk FOREIGN KEY (order_id) REFERENCES orders (id),
   CONSTRAINT order_details_food_fk FOREIGN KEY (food_id) REFERENCES foods (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS shipping_methods (
+  id INT NOT NULL AUTO_INCREMENT,
+  name VARCHAR(120) NOT NULL,
+  description VARCHAR(255) DEFAULT NULL,
+  fee INT NOT NULL DEFAULT 0,
+  estimated_time VARCHAR(80) DEFAULT NULL,
+  sort_order INT NOT NULL DEFAULT 0,
+  is_active TINYINT NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS food_reviews (

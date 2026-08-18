@@ -77,6 +77,39 @@ function calculateShippingFee(subtotal, address) {
   return 35000;
 }
 
+async function getActiveShippingMethods(connection = db) {
+  const [methods] = await connection.query(
+    `SELECT id, name, description, fee, estimated_time, sort_order, is_active
+     FROM shipping_methods
+     WHERE is_active = 1
+     ORDER BY sort_order ASC, fee ASC, id ASC`
+  );
+
+  return methods;
+}
+
+async function resolveShippingMethod(shippingMethodId, itemsSubtotal, customerAddress, connection = db) {
+  const methods = await getActiveShippingMethods(connection);
+  const selectedId = Number(shippingMethodId || 0);
+  const selected = methods.find(method => Number(method.id) === selectedId) || methods[0] || null;
+
+  if (selected) {
+    return {
+      id: Number(selected.id),
+      name: selected.name,
+      fee: Math.max(0, Number(selected.fee || 0)),
+      estimatedTime: selected.estimated_time || ""
+    };
+  }
+
+  return {
+    id: null,
+    name: "Giao hàng",
+    fee: calculateShippingFee(itemsSubtotal, customerAddress),
+    estimatedTime: ""
+  };
+}
+
 function normalizeDiscountCode(value) {
   return String(value || "").trim().toUpperCase();
 }
@@ -318,6 +351,23 @@ async function getItemsByOrderIds(orderIds) {
   }, {});
 }
 
+router.get("/shipping-methods", async (req, res) => {
+  try {
+    const methods = await getActiveShippingMethods();
+    res.json(methods.map(method => ({
+      id: method.id,
+      name: method.name,
+      description: method.description,
+      fee: Number(method.fee || 0),
+      estimatedTime: method.estimated_time,
+      sortOrder: method.sort_order
+    })));
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Khong the tai hinh thuc giao hang" });
+  }
+});
+
 router.post("/", requireAuth, async (req, res) => {
   // POST /api/orders
   // Tạo đơn hàng từ giỏ hàng frontend: validate giao hàng, kiểm tồn kho, áp voucher,
@@ -331,6 +381,7 @@ router.post("/", requireAuth, async (req, res) => {
       customerAddress,
       customerNote = "",
       paymentMethod = "cod",
+      shippingMethodId = null,
       discountCode = "",
       userDiscountId = null,
       items
@@ -408,7 +459,8 @@ router.post("/", requireAuth, async (req, res) => {
       };
     });
     const itemsSubtotal = orderItems.reduce((sum, item) => sum + item.subtotal, 0);
-    const shippingFee = calculateShippingFee(itemsSubtotal, customerAddress);
+    const shippingMethod = await resolveShippingMethod(shippingMethodId, itemsSubtotal, customerAddress, connection);
+    const shippingFee = shippingMethod.fee;
     const ownedDiscount = userDiscountId ? await findOwnedDiscount(req.user.id, userDiscountId, itemsSubtotal) : null;
     const discount = ownedDiscount || await findUsableDiscount(discountCode, itemsSubtotal, req.user.id);
     const discountAmounts = calculateDiscountAmount(discount, itemsSubtotal, shippingFee);
@@ -422,8 +474,8 @@ router.post("/", requireAuth, async (req, res) => {
 
     const [orderResult] = await connection.query(
       `INSERT INTO orders
-        (user_id, customer_name, phone, address, note, shipping_fee, discount_code, discount_amount, user_discount_id, total_price, payment_method, payment_status, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (user_id, customer_name, phone, address, note, shipping_fee, shipping_method_id, shipping_method_name, discount_code, discount_amount, user_discount_id, total_price, payment_method, payment_status, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         req.user.id,
         customerName.trim(),
@@ -431,6 +483,8 @@ router.post("/", requireAuth, async (req, res) => {
         customerAddress.trim(),
         customerNote.trim(),
         shippingFee,
+        shippingMethod.id,
+        shippingMethod.name,
         discount?.code || null,
         totalDiscount,
         ownedDiscount?.user_discount_id || null,
@@ -560,6 +614,7 @@ router.post("/", requireAuth, async (req, res) => {
         paymentMethod: normalizedPaymentMethod,
         paymentStatus,
         shippingFee,
+        shippingMethod,
         discountCode: discount?.code || null,
         userDiscountId: ownedDiscount?.user_discount_id || null,
         discountAmount: totalDiscount,
@@ -810,7 +865,10 @@ router.post("/discount/preview", requireAuth, async (req, res) => {
   // Frontend gọi để tính thử voucher trên tiền món/phí ship trước khi tạo đơn thật.
   try {
     const itemsSubtotal = Math.max(0, Number(req.body.itemsSubtotal || 0));
-    const shippingFee = Math.max(0, Number(req.body.shippingFee || 0));
+    const shippingMethod = req.body.shippingMethodId
+      ? await resolveShippingMethod(req.body.shippingMethodId, itemsSubtotal, "")
+      : null;
+    const shippingFee = shippingMethod ? shippingMethod.fee : Math.max(0, Number(req.body.shippingFee || 0));
     const discount = req.body.userDiscountId
       ? await findOwnedDiscount(req.user.id, req.body.userDiscountId, itemsSubtotal)
       : await findUsableDiscount(req.body.discountCode, itemsSubtotal, req.user.id);
@@ -895,7 +953,7 @@ router.get("/", requireAuth, async (req, res) => {
     }
 
     const [orders] = await db.query(
-      `SELECT id, customer_name, phone, address, note, shipping_fee, discount_code, discount_amount, total_price, payment_method, payment_status, status, created_at
+      `SELECT id, customer_name, phone, address, note, shipping_fee, shipping_method_id, shipping_method_name, discount_code, discount_amount, total_price, payment_method, payment_status, status, created_at
        FROM orders
        WHERE ${conditions.join(" AND ")}
        ORDER BY created_at DESC, id DESC`,
@@ -923,7 +981,7 @@ router.get("/:id", requireAuth, async (req, res) => {
     }
 
     const [orders] = await db.query(
-      `SELECT id, customer_name, phone, address, note, shipping_fee, discount_code, discount_amount, total_price, payment_method, payment_status, status, created_at
+      `SELECT id, customer_name, phone, address, note, shipping_fee, shipping_method_id, shipping_method_name, discount_code, discount_amount, total_price, payment_method, payment_status, status, created_at
        FROM orders
        WHERE id = ? AND user_id = ?`,
       [orderId, req.user.id]

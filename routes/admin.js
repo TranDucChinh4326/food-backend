@@ -271,6 +271,31 @@ function validateDiscountPayload(body) {
   };
 }
 
+function validateShippingMethodPayload(body) {
+  const name = String(body.name || "").trim();
+  const description = String(body.description || "").trim();
+  const fee = parsePositiveNumber(body.fee, 0);
+  const estimatedTime = String(body.estimatedTime || body.estimated_time || "").trim();
+  const sortOrder = parsePositiveNumber(body.sortOrder ?? body.sort_order, 0);
+  const isActive = body.isActive === undefined ? true : Boolean(body.isActive);
+
+  if (!name) return { error: "Vui long nhap ten hinh thuc giao hang" };
+  if (name.length > 120) return { error: "Ten hinh thuc giao hang toi da 120 ky tu" };
+  if (description.length > 255) return { error: "Mo ta toi da 255 ky tu" };
+  if (estimatedTime.length > 80) return { error: "Thoi gian du kien toi da 80 ky tu" };
+
+  return {
+    value: {
+      name,
+      description: description || null,
+      fee,
+      estimatedTime: estimatedTime || null,
+      sortOrder,
+      isActive
+    }
+  };
+}
+
 async function restoreOrderDiscountUsage(connection, order) {
   // Hoàn lượt voucher khi đơn bị hủy.
   // Hàm chạy trong transaction của đơn hàng để user_discounts và discounts không bị lệch số lượng.
@@ -385,6 +410,7 @@ router.get("/permissions", requirePermission(PERMISSIONS.ROLES_MANAGE), (req, re
       { value: PERMISSIONS.ANNOUNCEMENTS_MANAGE, label: "Quản lý thông báo" },
       { value: PERMISSIONS.ADS_MANAGE, label: "Quản lý quảng cáo" },
       { value: PERMISSIONS.DISCOUNTS_MANAGE, label: "Quản lý mã giảm giá" },
+      { value: PERMISSIONS.SHIPPING_MANAGE, label: "Quản lý phí vận chuyển" },
       { value: PERMISSIONS.FEEDBACK_MANAGE, label: "Quản lý phản hồi khách hàng" },
       { value: PERMISSIONS.STATS_VIEW, label: "Xem thống kê" }
     ]
@@ -755,6 +781,92 @@ router.delete("/discounts/:id", requirePermission(PERMISSIONS.DISCOUNTS_MANAGE),
   }
 });
 
+router.get("/shipping-methods", requirePermission(PERMISSIONS.SHIPPING_MANAGE), async (req, res) => {
+  try {
+    const [methods] = await db.query(
+      `SELECT id, name, description, fee, estimated_time, sort_order, is_active, created_at, updated_at
+       FROM shipping_methods
+       ORDER BY sort_order ASC, fee ASC, id ASC`
+    );
+
+    res.json(methods);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Khong the tai phi van chuyen" });
+  }
+});
+
+router.post("/shipping-methods", requirePermission(PERMISSIONS.SHIPPING_MANAGE), async (req, res) => {
+  try {
+    const parsed = validateShippingMethodPayload(req.body);
+    if (parsed.error) return res.status(400).json({ message: parsed.error });
+
+    const method = parsed.value;
+    const [result] = await db.query(
+      `INSERT INTO shipping_methods (name, description, fee, estimated_time, sort_order, is_active)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [method.name, method.description, method.fee, method.estimatedTime, method.sortOrder, method.isActive ? 1 : 0]
+    );
+
+    res.status(201).json({ message: "Da tao phi van chuyen", id: result.insertId });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Khong the tao phi van chuyen" });
+  }
+});
+
+router.put("/shipping-methods/:id", requirePermission(PERMISSIONS.SHIPPING_MANAGE), async (req, res) => {
+  try {
+    const methodId = Number(req.params.id);
+    const parsed = validateShippingMethodPayload(req.body);
+
+    if (!Number.isInteger(methodId) || methodId <= 0) {
+      return res.status(400).json({ message: "Ma hinh thuc giao hang khong hop le" });
+    }
+
+    if (parsed.error) return res.status(400).json({ message: parsed.error });
+
+    const method = parsed.value;
+    const [result] = await db.query(
+      `UPDATE shipping_methods
+       SET name = ?, description = ?, fee = ?, estimated_time = ?, sort_order = ?, is_active = ?
+       WHERE id = ?`,
+      [method.name, method.description, method.fee, method.estimatedTime, method.sortOrder, method.isActive ? 1 : 0, methodId]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "Khong tim thay hinh thuc giao hang" });
+    }
+
+    res.json({ message: "Da cap nhat phi van chuyen" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Khong the cap nhat phi van chuyen" });
+  }
+});
+
+router.delete("/shipping-methods/:id", requirePermission(PERMISSIONS.SHIPPING_MANAGE), async (req, res) => {
+  try {
+    const methodId = Number(req.params.id);
+
+    if (!Number.isInteger(methodId) || methodId <= 0) {
+      return res.status(400).json({ message: "Ma hinh thuc giao hang khong hop le" });
+    }
+
+    await db.query("UPDATE orders SET shipping_method_id = NULL WHERE shipping_method_id = ?", [methodId]);
+    const [result] = await db.query("DELETE FROM shipping_methods WHERE id = ?", [methodId]);
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "Khong tim thay hinh thuc giao hang" });
+    }
+
+    res.json({ message: "Da xoa phi van chuyen" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Khong the xoa phi van chuyen" });
+  }
+});
+
 router.get("/stats", requireAnyPermission([PERMISSIONS.STATS_VIEW, PERMISSIONS.ORDERS_MANAGE]), async (req, res) => {
   // GET /api/admin/stats
   // Tổng hợp doanh thu, số đơn, top món, danh mục và phản hồi cho dashboard quản trị.
@@ -936,7 +1048,7 @@ router.get("/stats", requireAnyPermission([PERMISSIONS.STATS_VIEW, PERMISSIONS.O
 router.get("/orders", requirePermission(PERMISSIONS.ORDERS_MANAGE), async (req, res) => {
   try {
     const [orders] = await db.query(
-      `SELECT id, customer_name, phone, address, note, shipping_fee, discount_code, discount_amount, total_price, payment_method, payment_status, status, created_at
+      `SELECT id, customer_name, phone, address, note, shipping_fee, shipping_method_id, shipping_method_name, discount_code, discount_amount, total_price, payment_method, payment_status, status, created_at
        FROM orders
        ORDER BY created_at DESC`
     );
