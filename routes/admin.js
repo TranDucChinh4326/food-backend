@@ -1673,6 +1673,63 @@ router.patch("/users/:id/status", requireAnyPermission([PERMISSIONS.USERS_MANAGE
   }
 });
 
+router.delete("/users/:id", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISSIONS.STAFF_MANAGE]), async (req, res) => {
+  try {
+    const userId = Number(req.params.id);
+
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).json({ message: "Ma tai khoan khong hop le" });
+    }
+
+    if (Number(req.user.id) === userId) {
+      return res.status(400).json({ message: "Khong the tu xoa tai khoan dang dang nhap" });
+    }
+
+    const [targetUsers] = await db.query("SELECT id, role FROM users WHERE id = ? LIMIT 1", [userId]);
+
+    if (targetUsers.length === 0) {
+      return res.status(404).json({ message: "Khong tim thay tai khoan" });
+    }
+
+    const blocked = ensureManageAccess(req, res, targetUsers[0].role);
+    if (blocked) return;
+
+    const connection = await db.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      await connection.query("DELETE FROM email_verification_tokens WHERE user_id = ?", [userId]);
+      await connection.query("DELETE FROM password_reset_tokens WHERE user_id = ?", [userId]);
+      await connection.query("DELETE FROM social_accounts WHERE user_id = ?", [userId]);
+      await connection.query("DELETE FROM user_auth_providers WHERE user_id = ?", [userId]);
+      await connection.query("DELETE FROM user_addresses WHERE user_id = ?", [userId]);
+      await connection.query("DELETE FROM user_discounts WHERE user_id = ?", [userId]);
+      await connection.query("DELETE FROM chat_messages WHERE session_id IN (SELECT session_id FROM chat_sessions WHERE user_id = ?)", [userId]);
+      await connection.query("DELETE FROM chat_sessions WHERE user_id = ?", [userId]);
+      await connection.query("DELETE FROM payment_transactions WHERE payment_session_id IN (SELECT id FROM payment_sessions WHERE user_id = ?)", [userId]);
+      await connection.query("DELETE FROM payment_sessions WHERE user_id = ?", [userId]);
+      await connection.query("UPDATE food_reviews SET replied_by = NULL WHERE replied_by = ?", [userId]);
+      await connection.query("DELETE FROM food_reviews WHERE user_id = ?", [userId]);
+      await connection.query("UPDATE customer_feedback SET replied_by = NULL WHERE replied_by = ?", [userId]);
+      await connection.query("DELETE FROM customer_feedback WHERE user_id = ?", [userId]);
+      await connection.query("UPDATE orders SET user_id = NULL WHERE user_id = ?", [userId]);
+      await connection.query("DELETE FROM users WHERE id = ?", [userId]);
+
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+
+    res.json({ message: "Da xoa tai khoan" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Khong the xoa tai khoan" });
+  }
+});
+
 router.get("/feedback", requirePermission(PERMISSIONS.FEEDBACK_MANAGE), async (req, res) => {
   try {
     const status = String(req.query.status || "all").trim().toLowerCase();
