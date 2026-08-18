@@ -873,7 +873,7 @@ router.get("/stats", requireAnyPermission([PERMISSIONS.STATS_VIEW, PERMISSIONS.O
   try {
     const from = String(req.query.from || "").trim();
     const to = String(req.query.to || "").trim();
-    const trend = ["day", "month", "quarter", "year"].includes(String(req.query.trend || "").trim())
+    const trend = ["day", "custom", "month", "quarter", "year"].includes(String(req.query.trend || "").trim())
       ? String(req.query.trend || "").trim()
       : "day";
     const where = [];
@@ -883,6 +883,11 @@ router.get("/stats", requireAnyPermission([PERMISSIONS.STATS_VIEW, PERMISSIONS.O
         label: "DATE(created_at)",
         date: "DATE(created_at)",
         limit: 7
+      },
+      custom: {
+        label: "DATE(created_at)",
+        date: "DATE(created_at)",
+        limit: 366
       },
       month: {
         label: "DATE_FORMAT(created_at, '%Y-%m')",
