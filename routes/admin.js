@@ -761,7 +761,7 @@ router.get("/stats", requireAnyPermission([PERMISSIONS.STATS_VIEW, PERMISSIONS.O
   try {
     const from = String(req.query.from || "").trim();
     const to = String(req.query.to || "").trim();
-    const trend = ["day", "month", "year"].includes(String(req.query.trend || "").trim())
+    const trend = ["day", "month", "quarter", "year"].includes(String(req.query.trend || "").trim())
       ? String(req.query.trend || "").trim()
       : "day";
     const where = [];
@@ -776,6 +776,11 @@ router.get("/stats", requireAnyPermission([PERMISSIONS.STATS_VIEW, PERMISSIONS.O
         label: "DATE_FORMAT(created_at, '%Y-%m')",
         date: "MIN(DATE(created_at))",
         limit: 12
+      },
+      quarter: {
+        label: "CONCAT(YEAR(created_at), '-Q', QUARTER(created_at))",
+        date: "MIN(DATE(created_at))",
+        limit: 8
       },
       year: {
         label: "DATE_FORMAT(created_at, '%Y')",
