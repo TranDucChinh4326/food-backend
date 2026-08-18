@@ -782,10 +782,14 @@ router.post("/forgot-password", async (req, res) => {
       console.error(mailError);
     }
 
+    if (!emailSent) {
+      return res.status(500).json({
+        message: "Chưa gửi được email OTP. Vui lòng kiểm tra cấu hình mail trên server."
+      });
+    }
+
     res.json({
-      message: emailSent
-        ? "FoodHub đã gửi mã OTP đặt lại mật khẩu đến email của bạn."
-        : "Chưa gửi được email OTP. Vui lòng kiểm tra cấu hình mail trên server.",
+      message: "FoodHub đã gửi mã OTP đặt lại mật khẩu đến email của bạn.",
       resetOtp: shouldExposeVerificationUrl(emailSent) ? otp : undefined
     });
   } catch (error) {
