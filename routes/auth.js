@@ -294,6 +294,9 @@ function getGmailTransport() {
 
   return nodemailer.createTransport({
     service: "gmail",
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 15000,
     auth: {
       user: process.env.MAIL_USER,
       pass: process.env.MAIL_APP_PASSWORD.replace(/\s+/g, "")
