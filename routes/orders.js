@@ -55,16 +55,41 @@ async function getActiveShippingMethods(connection = db) {
   return methods;
 }
 
-async function resolveShippingMethod(shippingMethodId, connection = db) {
+function normalizeShippingArea(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
+    .toLowerCase();
+}
+
+function calculateShippingAreaSurcharge(address) {
+  // Tính phụ phí theo khu vực từ tỉnh/thành trong địa chỉ giao hàng.
+  // Phí ship cuối cùng = phí cơ bản của hình thức giao hàng + phụ phí này.
+  const city = normalizeShippingArea(String(address || "").split("|")[0] || address);
+  if (!city || city.includes("vinh long")) return 0;
+
+  const nearProvinces = ["can tho", "dong thap", "tien giang", "ben tre", "tra vinh", "hau giang"];
+  if (nearProvinces.some(province => city.includes(province))) return 10000;
+
+  return 20000;
+}
+
+async function resolveShippingMethod(shippingMethodId, customerAddress = "", connection = db) {
   const methods = await getActiveShippingMethods(connection);
   const selectedId = Number(shippingMethodId || 0);
   const selected = methods.find(method => Number(method.id) === selectedId) || methods[0] || null;
 
   if (selected) {
+    const baseFee = Math.max(0, Number(selected.fee || 0));
+    const areaSurcharge = calculateShippingAreaSurcharge(customerAddress);
     return {
       id: Number(selected.id),
       name: selected.name,
-      fee: Math.max(0, Number(selected.fee || 0)),
+      fee: baseFee + areaSurcharge,
+      baseFee,
+      areaSurcharge,
       estimatedTime: selected.estimated_time || ""
     };
   }
@@ -423,7 +448,7 @@ router.post("/", requireAuth, async (req, res) => {
       };
     });
     const itemsSubtotal = orderItems.reduce((sum, item) => sum + item.subtotal, 0);
-    const shippingMethod = await resolveShippingMethod(shippingMethodId, connection);
+    const shippingMethod = await resolveShippingMethod(shippingMethodId, customerAddress, connection);
     const shippingFee = shippingMethod.fee;
     const ownedDiscount = userDiscountId ? await findOwnedDiscount(req.user.id, userDiscountId, itemsSubtotal) : null;
     const discount = ownedDiscount || await findUsableDiscount(discountCode, itemsSubtotal, req.user.id);
@@ -829,7 +854,7 @@ router.post("/discount/preview", requireAuth, async (req, res) => {
   // Frontend gọi để tính thử voucher trên tiền món/phí ship trước khi tạo đơn thật.
   try {
     const itemsSubtotal = Math.max(0, Number(req.body.itemsSubtotal || 0));
-    const shippingMethod = await resolveShippingMethod(req.body.shippingMethodId);
+    const shippingMethod = await resolveShippingMethod(req.body.shippingMethodId, req.body.customerAddress || "");
     const shippingFee = shippingMethod.fee;
     const discount = req.body.userDiscountId
       ? await findOwnedDiscount(req.user.id, req.body.userDiscountId, itemsSubtotal)
