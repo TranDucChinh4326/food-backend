@@ -5,6 +5,7 @@ const path = require("path");
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const multer = require("multer");
+const nodemailer = require("nodemailer");
 const { v2: cloudinary } = require("cloudinary");
 const db = require("../db");
 const { requireAuth } = require("../middleware/auth");
@@ -165,6 +166,10 @@ function hashToken(token) {
   return crypto.createHash("sha256").update(token).digest("hex");
 }
 
+function createPasswordOtpCode() {
+  return String(crypto.randomInt(100000, 1000000));
+}
+
 function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
 }
@@ -231,21 +236,21 @@ async function createEmailVerification(userId) {
 }
 
 async function createPasswordReset(userId) {
-  // Tạo link đặt lại mật khẩu cho người quên mật khẩu ở trang đăng nhập.
-  // Token thật gửi qua email, Database chỉ lưu hash và thời hạn để tránh lộ token nếu DB bị đọc.
-  const token = crypto.randomBytes(32).toString("hex");
-  const tokenHash = hashToken(token);
+  // Tạo mã OTP đặt lại mật khẩu cho người quên mật khẩu ở trang đăng nhập.
+  // Database chỉ lưu hash OTP và thời hạn để nếu DB bị đọc thì mã thật vẫn không bị lộ.
+  const otp = createPasswordOtpCode();
+  const tokenHash = hashToken(otp);
 
   await db.query(
     "DELETE FROM password_reset_tokens WHERE user_id = ? AND used_at IS NULL",
     [userId]
   );
   await db.query(
-    "INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 30 MINUTE))",
+    "INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 10 MINUTE))",
     [userId, tokenHash]
   );
 
-  return `${getFrontendUrl()}/reset-password.html?token=${token}`;
+  return otp;
 }
 
 async function sendVerificationEmail(email, fullname, verificationUrl) {
@@ -282,9 +287,40 @@ async function sendVerificationEmail(email, fullname, verificationUrl) {
   return true;
 }
 
-async function sendPasswordResetEmail(email, fullname, resetUrl) {
-  // Gửi email chứa link đặt lại mật khẩu.
-  // Nếu môi trường chưa cấu hình Resend, hàm trả false để backend có thể trả debug link khi dev.
+function getGmailTransport() {
+  if (process.env.MAIL_PROVIDER !== "gmail" || !process.env.MAIL_USER || !process.env.MAIL_APP_PASSWORD) {
+    return null;
+  }
+
+  return nodemailer.createTransport({
+    service: "gmail",
+    auth: {
+      user: process.env.MAIL_USER,
+      pass: process.env.MAIL_APP_PASSWORD.replace(/\s+/g, "")
+    }
+  });
+}
+
+async function sendPasswordResetEmail(email, fullname, otp) {
+  // Gửi email chứa mã OTP đặt lại mật khẩu.
+  // Ưu tiên Gmail SMTP cho demo/thực tế nhỏ; nếu không cấu hình Gmail thì fallback sang Resend.
+  const gmailTransport = getGmailTransport();
+  if (gmailTransport) {
+    await gmailTransport.sendMail({
+      from: process.env.MAIL_FROM || process.env.MAIL_USER,
+      to: email,
+      subject: "Ma OTP dat lai mat khau FoodHub",
+      html: `
+        <p>Chao ${String(fullname || "ban")},</p>
+        <p>Ma OTP dat lai mat khau FoodHub cua ban la:</p>
+        <p style="font-size:24px;font-weight:700;letter-spacing:4px;">${otp}</p>
+        <p>Ma nay het han sau 10 phut. Neu ban khong yeu cau, hay bo qua email nay.</p>
+      `
+    });
+    return true;
+  }
+
+  // Nếu môi trường chưa cấu hình Resend, hàm trả false để backend có thể báo lỗi cấu hình mail.
   if (!process.env.RESEND_API_KEY || !process.env.MAIL_FROM) {
     return false;
   }
@@ -298,13 +334,12 @@ async function sendPasswordResetEmail(email, fullname, resetUrl) {
     body: JSON.stringify({
       from: process.env.MAIL_FROM,
       to: email,
-      subject: "Dat lai mat khau FoodHub",
+      subject: "Ma OTP dat lai mat khau FoodHub",
       html: `
         <p>Chao ${String(fullname || "ban")},</p>
-        <p>FoodHub nhan duoc yeu cau dat lai mat khau cho tai khoan cua ban.</p>
-        <p>Bam vao lien ket ben duoi de tao mat khau moi:</p>
-        <p><a href="${resetUrl}">${resetUrl}</a></p>
-        <p>Lien ket het han sau 30 phut. Neu ban khong yeu cau, hay bo qua email nay.</p>
+        <p>Ma OTP dat lai mat khau FoodHub cua ban la:</p>
+        <p style="font-size:24px;font-weight:700;letter-spacing:4px;">${otp}</p>
+        <p>Ma nay het han sau 10 phut. Neu ban khong yeu cau, hay bo qua email nay.</p>
       `
     })
   });
@@ -735,18 +770,20 @@ router.post("/forgot-password", async (req, res) => {
       return res.json({ message: genericMessage });
     }
 
-    const resetUrl = await createPasswordReset(users[0].id);
+    const otp = await createPasswordReset(users[0].id);
     let emailSent = false;
 
     try {
-      emailSent = await sendPasswordResetEmail(normalizedEmail, users[0].fullname, resetUrl);
+      emailSent = await sendPasswordResetEmail(normalizedEmail, users[0].fullname, otp);
     } catch (mailError) {
       console.error(mailError);
     }
 
     res.json({
-      message: emailSent ? genericMessage : "Đã tạo link đặt lại mật khẩu.",
-      resetUrl: shouldExposeVerificationUrl(emailSent) ? resetUrl : undefined
+      message: emailSent
+        ? "FoodHub đã gửi mã OTP đặt lại mật khẩu đến email của bạn."
+        : "Chưa gửi được email OTP. Vui lòng kiểm tra cấu hình mail trên server.",
+      resetOtp: shouldExposeVerificationUrl(emailSent) ? otp : undefined
     });
   } catch (error) {
     console.error(error);
@@ -756,14 +793,19 @@ router.post("/forgot-password", async (req, res) => {
 
 router.post("/reset-password", async (req, res) => {
   // POST /api/auth/reset-password
-  // Nhận token từ email và mật khẩu mới; nếu token còn hạn/chưa dùng thì cập nhật password đã hash.
+  // Nhận email, mã OTP và mật khẩu mới; nếu OTP còn hạn/chưa dùng thì cập nhật password đã hash.
   try {
-    const token = String(req.body.token || "").trim();
+    const normalizedEmail = normalizeEmail(req.body.email);
+    const otp = String(req.body.otp || req.body.token || "").trim();
     const password = String(req.body.password || "");
     const confirmPassword = String(req.body.confirmPassword || "");
 
-    if (!token) {
-      return res.status(400).json({ message: "Thiếu mã đặt lại mật khẩu." });
+    if (!normalizedEmail) {
+      return res.status(400).json({ message: "Vui lòng nhập email." });
+    }
+
+    if (!/^\d{6}$/.test(otp)) {
+      return res.status(400).json({ message: "Mã OTP phải gồm 6 chữ số." });
     }
 
     if (password !== confirmPassword) {
@@ -780,14 +822,15 @@ router.post("/reset-password", async (req, res) => {
        FROM password_reset_tokens
        JOIN users ON users.id = password_reset_tokens.user_id
        WHERE password_reset_tokens.token_hash = ?
+         AND users.email = ?
          AND password_reset_tokens.used_at IS NULL
          AND password_reset_tokens.expires_at > NOW()
        LIMIT 1`,
-      [hashToken(token)]
+      [hashToken(otp), normalizedEmail]
     );
 
     if (tokens.length === 0 || !tokens[0].is_active) {
-      return res.status(400).json({ message: "Link đặt lại mật khẩu không hợp lệ hoặc đã hết hạn." });
+      return res.status(400).json({ message: "Mã OTP không hợp lệ hoặc đã hết hạn." });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
