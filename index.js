@@ -65,6 +65,7 @@ app.use("/api/advertisements", require("./routes/advertisements"));
 app.use("/api/feedback", require("./routes/feedback"));
 app.use("/api/food-reviews", require("./routes/food-reviews"));
 app.use("/api/payments", require("./routes/payments"));
+app.use("/api/chat", require("./routes/chat"));
 app.use("/api/admin", require("./routes/admin"));
 
 app.get("/", (req, res) => {
@@ -493,6 +494,36 @@ async function ensureSchema() {
     `);
   } catch (error) {
     console.error("Customer feedback schema check failed:", error.message);
+  }
+
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS chat_sessions (
+        session_id VARCHAR(120) NOT NULL,
+        user_id INT DEFAULT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (session_id),
+        KEY chat_sessions_user (user_id),
+        CONSTRAINT chat_sessions_user_fk FOREIGN KEY (user_id) REFERENCES users (id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS chat_messages (
+        message_id INT NOT NULL AUTO_INCREMENT,
+        session_id VARCHAR(120) NOT NULL,
+        sender VARCHAR(20) NOT NULL,
+        message TEXT NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (message_id),
+        KEY chat_messages_session (session_id, created_at),
+        CONSTRAINT chat_messages_session_fk FOREIGN KEY (session_id) REFERENCES chat_sessions (session_id),
+        CONSTRAINT chat_messages_sender_check CHECK (sender IN ('user', 'bot'))
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+  } catch (error) {
+    console.error("Chat history schema check failed:", error.message);
   }
 
   try {
