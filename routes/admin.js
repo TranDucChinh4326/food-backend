@@ -805,6 +805,9 @@ router.get("/stats", requireAnyPermission([PERMISSIONS.STATS_VIEW, PERMISSIONS.O
       ...where.map(condition => condition.replace("created_at", "orders.created_at"))
     ];
     const detailWhere = `WHERE ${detailConditions.join(" AND ")}`;
+    const customerOrderJoin = where.length
+      ? `AND ${where.map(condition => condition.replace("created_at", "orders.created_at")).join(" AND ")}`
+      : "";
 
     const [orderRows] = await db.query(
       `SELECT
@@ -886,6 +889,24 @@ router.get("/stats", requireAnyPermission([PERMISSIONS.STATS_VIEW, PERMISSIONS.O
       params
     );
 
+    const [customerStats] = await db.query(
+      `SELECT users.id,
+              COALESCE(users.fullname, users.username, users.email, 'Khach hang') AS customer_name,
+              users.email,
+              COUNT(orders.id) AS total_orders,
+              COALESCE(SUM(CASE WHEN orders.status = 'done' THEN 1 ELSE 0 END), 0) AS done_orders,
+              COALESCE(SUM(CASE WHEN orders.status = 'cancelled' THEN 1 ELSE 0 END), 0) AS cancelled_orders,
+              COALESCE(SUM(CASE WHEN orders.status = 'done' THEN orders.total_price ELSE 0 END), 0) AS revenue,
+              MAX(orders.created_at) AS last_order_at
+       FROM users
+       LEFT JOIN orders ON orders.user_id = users.id ${customerOrderJoin}
+       WHERE UPPER(COALESCE(users.role, 'USER')) = 'USER'
+       GROUP BY users.id, users.fullname, users.username, users.email
+       ORDER BY revenue DESC, total_orders DESC, last_order_at DESC, users.created_at DESC
+       LIMIT 20`,
+      params
+    );
+
     const [feedbackRows] = await db.query(
       `SELECT COUNT(*) AS total_feedback,
         COALESCE(AVG(rating), 0) AS average_rating
@@ -903,6 +924,7 @@ router.get("/stats", requireAnyPermission([PERMISSIONS.STATS_VIEW, PERMISSIONS.O
       topFoods,
       dailyRevenue,
       categorySales,
+      customerStats,
       feedback: feedbackRows[0] || { total_feedback: 0, average_rating: 0 }
     });
   } catch (error) {
