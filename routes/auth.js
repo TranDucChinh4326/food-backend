@@ -1408,11 +1408,11 @@ router.put("/password", requireAuth, async (req, res) => {
     }
 
     if (newPassword !== confirmPassword) {
-      return res.status(400).json({ message: "Mật khẩu mới nhập lai không khớp" });
+      return res.status(400).json({ message: "Mật khẩu mới nhập lại không khớp" });
     }
 
     if (newPassword.length < 6) {
-      return res.status(400).json({ message: "Mật khẩu mới tối thiểu 6 ky tu" });
+      return res.status(400).json({ message: "Mật khẩu mới tối thiểu 6 ký tự" });
     }
 
     const [users] = await db.query(
@@ -1449,7 +1449,7 @@ router.put("/password", requireAuth, async (req, res) => {
       || String(captchaAnswer).trim().toLowerCase() !== captcha.code
     ) {
       passwordCaptchaStore.delete(normalizedCaptchaId);
-      return res.status(400).json({ message: "Ma captcha không đúng" });
+      return res.status(400).json({ message: "Mã captcha không đúng" });
     }
 
     passwordCaptchaStore.delete(normalizedCaptchaId);
@@ -1459,7 +1459,7 @@ router.put("/password", requireAuth, async (req, res) => {
     await updatePasswordHash(req.user.id, hashedPassword);
     await ensureLocalProvider(req.user.id, users[0].email);
 
-    res.json({ message: hasPasswordSet ? "Doi mật khẩu thành công" : "Tạo mật khẩu đăng nhập thành công" });
+    res.json({ message: hasPasswordSet ? "Đổi mật khẩu thành công" : "Tạo mật khẩu đăng nhập thành công" });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Lỗi server" });
