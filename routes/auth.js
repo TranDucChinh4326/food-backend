@@ -595,10 +595,14 @@ async function createLocalUser({ username, email, password, fullname }) {
 }
 
 function sendAuthResponse(res, user) {
+  if (!user?.is_active) {
+    return res.status(403).json({ message: "Tài khoản đã bị khóa" });
+  }
+
   const token = signToken(user);
   const responseUser = publicUser(user);
 
-  res.json({
+  return res.json({
     message: "Đăng nhập thành công",
     token,
     requiresAccountSetup: responseUser.requiresAccountSetup,
