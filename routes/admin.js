@@ -1963,6 +1963,27 @@ router.patch("/food-reviews/:id/visibility", requirePermission(PERMISSIONS.FEEDB
   }
 });
 
+router.delete("/food-reviews/:id", requirePermission(PERMISSIONS.FEEDBACK_MANAGE), async (req, res) => {
+  try {
+    const reviewId = Number(req.params.id);
+
+    if (!Number.isInteger(reviewId) || reviewId <= 0) {
+      return res.status(400).json({ message: "Ma danh gia khong hop le" });
+    }
+
+    const [result] = await db.query("DELETE FROM food_reviews WHERE id = ?", [reviewId]);
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "Khong tim thay danh gia" });
+    }
+
+    res.json({ message: "Da xoa binh luan" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Khong the xoa binh luan" });
+  }
+});
+
 router.put("/users/:id/password", requirePermission(PERMISSIONS.PASSWORD_RESET), async (req, res) => {
   try {
     const userId = Number(req.params.id);
