@@ -1,0 +1,2 @@
+ALTER TABLE food_reviews
+  MODIFY is_visible TINYINT NOT NULL DEFAULT 0;

@@ -323,10 +323,20 @@ async function getItemsByOrderIds(orderIds) {
 
   const placeholders = orderIds.map(() => "?").join(",");
   const [items] = await db.query(
-    `SELECT order_id, food_id, food_name, price, quantity, subtotal
+    `SELECT order_details.order_id,
+            order_details.food_id,
+            order_details.food_name,
+            order_details.price,
+            order_details.quantity,
+            order_details.subtotal,
+            food_reviews.id AS review_id,
+            food_reviews.is_visible AS review_is_visible
      FROM order_details
-     WHERE order_id IN (${placeholders})
-     ORDER BY id ASC`,
+     LEFT JOIN food_reviews
+       ON food_reviews.order_id = order_details.order_id
+      AND food_reviews.food_id = order_details.food_id
+     WHERE order_details.order_id IN (${placeholders})
+     ORDER BY order_details.id ASC`,
     orderIds
   );
 
@@ -981,10 +991,20 @@ router.get("/:id", requireAuth, async (req, res) => {
     }
 
     const [items] = await db.query(
-      `SELECT id, food_id, food_name, price, quantity, subtotal
+      `SELECT order_details.id,
+              order_details.food_id,
+              order_details.food_name,
+              order_details.price,
+              order_details.quantity,
+              order_details.subtotal,
+              food_reviews.id AS review_id,
+              food_reviews.is_visible AS review_is_visible
        FROM order_details
-       WHERE order_id = ?
-       ORDER BY id ASC`,
+       LEFT JOIN food_reviews
+         ON food_reviews.order_id = order_details.order_id
+        AND food_reviews.food_id = order_details.food_id
+       WHERE order_details.order_id = ?
+       ORDER BY order_details.id ASC`,
       [orderId]
     );
 

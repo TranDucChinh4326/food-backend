@@ -601,7 +601,7 @@ async function ensureSchema() {
         admin_reply TEXT DEFAULT NULL,
         replied_by INT DEFAULT NULL,
         replied_at TIMESTAMP NULL DEFAULT NULL,
-        is_visible TINYINT NOT NULL DEFAULT 1,
+        is_visible TINYINT NOT NULL DEFAULT 0,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
         PRIMARY KEY (id),
@@ -618,6 +618,7 @@ async function ensureSchema() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
     await db.query("ALTER TABLE food_reviews MODIFY comment TEXT NULL");
+    await db.query("ALTER TABLE food_reviews MODIFY is_visible TINYINT NOT NULL DEFAULT 0");
     await ensureColumn("food_reviews", "admin_reply", "ALTER TABLE food_reviews ADD COLUMN admin_reply TEXT DEFAULT NULL AFTER comment");
     await ensureColumn("food_reviews", "replied_by", "ALTER TABLE food_reviews ADD COLUMN replied_by INT DEFAULT NULL AFTER admin_reply");
     await ensureColumn("food_reviews", "replied_at", "ALTER TABLE food_reviews ADD COLUMN replied_at TIMESTAMP NULL DEFAULT NULL AFTER replied_by");

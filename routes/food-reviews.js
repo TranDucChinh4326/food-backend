@@ -130,8 +130,8 @@ router.post("/", requireAuth, async (req, res) => {
 
     try {
       const [result] = await db.query(
-        `INSERT INTO food_reviews (food_id, user_id, order_id, rating, comment)
-         VALUES (?, ?, ?, ?, ?)`,
+        `INSERT INTO food_reviews (food_id, user_id, order_id, rating, comment, is_visible)
+         VALUES (?, ?, ?, ?, ?, 0)`,
         [foodId, req.user.id, orderId, rating, comment]
       );
 
@@ -159,7 +159,7 @@ router.post("/", requireAuth, async (req, res) => {
       );
 
       return res.status(201).json({
-        message: "Đánh giá món ăn thành công",
+        message: "Đã gửi đánh giá. Bình luận sẽ hiển thị sau khi admin phê duyệt.",
         review: mapReview(reviews[0])
       });
     } catch (error) {
