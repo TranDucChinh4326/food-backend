@@ -104,12 +104,12 @@ async function geocodeDeliveryAddress(address) {
   const response = await fetch(url);
   const data = await response.json().catch(() => ({}));
   if (!response.ok || !Array.isArray(data.features) || data.features.length === 0) {
-    throw new Error(data.error?.message || "Khong the dinh vi dia chi giao hang");
+    throw new Error(data.error?.message || "Không thể định vị địa chỉ giao hàng");
   }
 
   const coordinates = data.features[0]?.geometry?.coordinates;
   if (!Array.isArray(coordinates) || coordinates.length < 2) {
-    throw new Error("Dia chi giao hang khong co toa do hop le");
+    throw new Error("Địa chỉ giao hàng không có tọa độ hợp lệ");
   }
 
   return {
@@ -156,7 +156,7 @@ async function getDrivingDistanceKm(address, location = null) {
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok || !Array.isArray(data.routes) || !data.routes[0]?.summary) {
-    throw new Error(data.error?.message || "Khong the do khoang cach giao hang");
+    throw new Error(data.error?.message || "Không thể đo khoảng cách giao hàng");
   }
 
   return {
@@ -281,7 +281,7 @@ async function findUsableDiscount(code, itemsSubtotal, userId = null) {
   );
 
   if (discounts.length === 0) {
-    const error = new Error("Ma giam gia khong hop le hoac da het han");
+    const error = new Error("Mã giảm giá không hợp lệ hoặc đã hết hạn");
     error.status = 400;
     throw error;
   }
@@ -357,7 +357,7 @@ async function findOwnedDiscount(userId, userDiscountId, itemsSubtotal, connecti
   );
 
   if (rows.length === 0) {
-    const error = new Error("Voucher khong hop le hoac da het luot su dung");
+    const error = new Error("Voucher không hợp lệ hoặc đã hết lượt sử dụng");
     error.status = 400;
     throw error;
   }
@@ -492,7 +492,7 @@ router.get("/shipping-methods", async (req, res) => {
     })));
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Khong the tai hinh thuc giao hang" });
+    res.status(500).json({ message: "Không thể tải hình thức giao hàng" });
   }
 });
 
@@ -500,13 +500,13 @@ router.post("/shipping/geocode", async (req, res) => {
   try {
     const location = await geocodeDeliveryAddress(req.body.customerAddress || "");
     if (!location) {
-      return res.status(400).json({ message: "Khong tim thay toa do cho dia chi nay" });
+      return res.status(400).json({ message: "Không tìm thấy tọa độ cho địa chỉ này" });
     }
 
     res.json(location);
   } catch (error) {
     console.error(error);
-    res.status(error.status || 500).json({ message: error.message || "Khong the dinh vi dia chi giao hang" });
+    res.status(error.status || 500).json({ message: error.message || "Không thể định vị địa chỉ giao hàng" });
   }
 });
 
@@ -527,7 +527,7 @@ router.post("/shipping/quote", async (req, res) => {
     });
   } catch (error) {
     console.error(error);
-    res.status(error.status || 500).json({ message: error.message || "Khong the tinh phi giao hang" });
+    res.status(error.status || 500).json({ message: error.message || "Không thể tính phí giao hàng" });
   }
 });
 
@@ -904,7 +904,7 @@ router.post("/vouchers/claim", requireAuth, async (req, res) => {
 
     if (discounts.length === 0) {
       await connection.rollback();
-      return res.status(404).json({ message: "Voucher khong kha dung hoac da het han" });
+      return res.status(404).json({ message: "Voucher không khả dụng hoặc đã hết hạn" });
     }
 
     const discount = discounts[0];
@@ -1058,7 +1058,7 @@ router.get("/:id/payment/status", requireAuth, async (req, res) => {
     const orderId = Number(req.params.id);
 
     if (!isPositiveInteger(orderId)) {
-      return res.status(400).json({ message: "Ma don hang khong hop le" });
+      return res.status(400).json({ message: "Mã đơn hàng không hợp lệ" });
     }
 
     const [orders] = await db.query(
@@ -1072,7 +1072,7 @@ router.get("/:id/payment/status", requireAuth, async (req, res) => {
     );
 
     if (orders.length === 0) {
-      return res.status(404).json({ message: "Khong tim thay giao dich QR" });
+      return res.status(404).json({ message: "Không tìm thấy giao dịch QR" });
     }
 
     const order = orders[0];

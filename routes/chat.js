@@ -53,7 +53,7 @@ async function ensureChatSession(sessionId, userId) {
   );
   const ownerId = sessions[0]?.user_id;
   if (ownerId && Number(ownerId) !== Number(userId || 0)) {
-    const error = new Error("Ban khong co quyen su dung phien chat nay.");
+    const error = new Error("Bạn không có quyền sử dụng phiên chat này.");
     error.status = 403;
     throw error;
   }
@@ -463,7 +463,7 @@ router.get("/:sessionId/messages", optionalAuth, async (req, res) => {
 
     const session = sessions[0];
     if (session.user_id && (!req.user?.id || Number(session.user_id) !== Number(req.user.id))) {
-      return res.status(403).json({ success: false, message: "Ban khong co quyen xem lich su chat nay." });
+      return res.status(403).json({ success: false, message: "Bạn không có quyền xem lịch sử chat này." });
     }
 
     const [messages] = await db.query(
@@ -480,7 +480,7 @@ router.get("/:sessionId/messages", optionalAuth, async (req, res) => {
     console.error("Chat history API error:", error);
     res.status(500).json({
       success: false,
-      message: "Khong the tai lich su chat."
+      message: "Không thể tải lịch sử chat."
     });
   }
 });

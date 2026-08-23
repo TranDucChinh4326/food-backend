@@ -317,7 +317,7 @@ async function sendPasswordResetEmail(email, fullname, otp) {
         <p>Chao ${String(fullname || "ban")},</p>
         <p>Ma OTP dat lai mat khau FoodHub cua ban la:</p>
         <p style="font-size:24px;font-weight:700;letter-spacing:4px;">${otp}</p>
-        <p>Ma nay het han sau 10 phut. Neu ban khong yeu cau, hay bo qua email nay.</p>
+        <p>Mã này hết hạn sau 10 phút. Nếu bạn không yêu cầu, hãy bỏ qua email này.</p>
       `
     });
     return true;
@@ -342,14 +342,14 @@ async function sendPasswordResetEmail(email, fullname, otp) {
         <p>Chao ${String(fullname || "ban")},</p>
         <p>Ma OTP dat lai mat khau FoodHub cua ban la:</p>
         <p style="font-size:24px;font-weight:700;letter-spacing:4px;">${otp}</p>
-        <p>Ma nay het han sau 10 phut. Neu ban khong yeu cau, hay bo qua email nay.</p>
+        <p>Mã này hết hạn sau 10 phút. Nếu bạn không yêu cầu, hãy bỏ qua email này.</p>
       `
     })
   });
 
   if (!response.ok) {
     const errorBody = await response.text();
-    throw new Error(`Khong gui duoc email dat lai mat khau: ${errorBody}`);
+    throw new Error(`Không gửi được email đặt lại mật khẩu: ${errorBody}`);
   }
 
   return true;

@@ -15,19 +15,19 @@ function normalizeFeedbackPayload(body) {
   const content = String(body.content || "").trim();
 
   if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
-    return { error: "Vui long chon muc do hai long tu 1 den 5" };
+    return { error: "Vui lòng chọn mức độ hài lòng từ 1 đến 5" };
   }
 
   if (!FEEDBACK_CATEGORIES.includes(category)) {
-    return { error: "Nhom phan hoi khong hop le" };
+    return { error: "Nhóm phản hồi không hợp lệ" };
   }
 
   if (title.length < 5 || title.length > 150) {
-    return { error: "Tieu de phan hoi can tu 5 den 150 ky tu" };
+    return { error: "Tiêu đề phản hồi cần từ 5 đến 150 ký tự" };
   }
 
   if (content.length < 10 || content.length > 2000) {
-    return { error: "Noi dung phan hoi can tu 10 den 2000 ky tu" };
+    return { error: "Nội dung phản hồi cần từ 10 đến 2000 ký tự" };
   }
 
   return {
@@ -76,7 +76,7 @@ router.post("/", requireAuth, async (req, res) => {
     );
 
     res.status(201).json({
-      message: "Da gui phan hoi. FoodHub se xem xet va phan hoi som nhat.",
+      message: "Đã gửi phản hồi. FoodHub sẽ xem xét và phản hồi sớm nhất.",
       feedback: {
         id: result.insertId,
         rating,

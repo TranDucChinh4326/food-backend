@@ -248,10 +248,10 @@ function validateDiscountPayload(body) {
   if (!code) return { error: "Vui long nhap ma giam gia" };
   if (!/^[A-Z0-9_-]{3,40}$/.test(code)) return { error: "Ma giam gia chi gom chu, so, dau gach ngang hoac gach duoi" };
   if (!name) return { error: "Vui long nhap ten chuong trinh" };
-  if (!["percent", "fixed", "free_shipping"].includes(discountType)) return { error: "Kieu giam gia khong hop le" };
-  if (!["order", "shipping"].includes(applyTo)) return { error: "Pham vi ap dung ma giam gia khong hop le" };
+  if (!["percent", "fixed", "free_shipping"].includes(discountType)) return { error: "Kiểu giảm giá không hợp lệ" };
+  if (!["order", "shipping"].includes(applyTo)) return { error: "Phạm vi áp dụng mã giảm giá không hợp lệ" };
   if ((discountType !== "free_shipping" && discountValue <= 0) || (discountType === "percent" && discountValue > 100)) {
-    return { error: "Gia tri giam gia khong hop le" };
+    return { error: "Giá trị giảm giá không hợp lệ" };
   }
 
   return {
@@ -375,12 +375,12 @@ router.get("/me", requireAuth, async (req, res) => {
     );
 
     if (users.length === 0 || !users[0].is_active) {
-      return res.status(401).json({ message: "Tai khoan khong kha dung" });
+      return res.status(401).json({ message: "Tài khoản không khả dụng" });
     }
 
     const user = users[0];
     if (String(user.role || "").toUpperCase() === "USER") {
-      return res.status(403).json({ message: "Ban khong co quyen quan tri" });
+      return res.status(403).json({ message: "Bạn không có quyền quản trị" });
     }
 
     res.json({
@@ -792,7 +792,7 @@ router.get("/shipping-methods", requirePermission(PERMISSIONS.SHIPPING_MANAGE), 
     res.json(methods);
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Khong the tai phi van chuyen" });
+    res.status(500).json({ message: "Không thể tải phí vận chuyển" });
   }
 });
 
@@ -811,7 +811,7 @@ router.post("/shipping-methods", requirePermission(PERMISSIONS.SHIPPING_MANAGE),
     res.status(201).json({ message: "Da tao phi van chuyen", id: result.insertId });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Khong the tao phi van chuyen" });
+    res.status(500).json({ message: "Không thể tạo phí vận chuyển" });
   }
 });
 
@@ -821,7 +821,7 @@ router.put("/shipping-methods/:id", requirePermission(PERMISSIONS.SHIPPING_MANAG
     const parsed = validateShippingMethodPayload(req.body);
 
     if (!Number.isInteger(methodId) || methodId <= 0) {
-      return res.status(400).json({ message: "Ma hinh thuc giao hang khong hop le" });
+      return res.status(400).json({ message: "Mã hình thức giao hàng không hợp lệ" });
     }
 
     if (parsed.error) return res.status(400).json({ message: parsed.error });
@@ -835,13 +835,13 @@ router.put("/shipping-methods/:id", requirePermission(PERMISSIONS.SHIPPING_MANAG
     );
 
     if (result.affectedRows === 0) {
-      return res.status(404).json({ message: "Khong tim thay hinh thuc giao hang" });
+      return res.status(404).json({ message: "Không tìm thấy hình thức giao hàng" });
     }
 
     res.json({ message: "Da cap nhat phi van chuyen" });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Khong the cap nhat phi van chuyen" });
+    res.status(500).json({ message: "Không thể cập nhật phí vận chuyển" });
   }
 });
 
@@ -850,20 +850,20 @@ router.delete("/shipping-methods/:id", requirePermission(PERMISSIONS.SHIPPING_MA
     const methodId = Number(req.params.id);
 
     if (!Number.isInteger(methodId) || methodId <= 0) {
-      return res.status(400).json({ message: "Ma hinh thuc giao hang khong hop le" });
+      return res.status(400).json({ message: "Mã hình thức giao hàng không hợp lệ" });
     }
 
     await db.query("UPDATE orders SET shipping_method_id = NULL WHERE shipping_method_id = ?", [methodId]);
     const [result] = await db.query("DELETE FROM shipping_methods WHERE id = ?", [methodId]);
 
     if (result.affectedRows === 0) {
-      return res.status(404).json({ message: "Khong tim thay hinh thuc giao hang" });
+      return res.status(404).json({ message: "Không tìm thấy hình thức giao hàng" });
     }
 
     res.json({ message: "Da xoa phi van chuyen" });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Khong the xoa phi van chuyen" });
+    res.status(500).json({ message: "Không thể xóa phí vận chuyển" });
   }
 });
 
@@ -1102,11 +1102,11 @@ router.patch("/orders/:id/status", requirePermission(PERMISSIONS.ORDERS_MANAGE),
     const allowedStatuses = ["pending_payment", "pending", "confirmed", "delivering", "done", "cancelled"];
 
     if (!Number.isInteger(orderId) || orderId <= 0) {
-      return res.status(400).json({ message: "Ma don hang khong hop le" });
+      return res.status(400).json({ message: "Mã đơn hàng không hợp lệ" });
     }
 
     if (!allowedStatuses.includes(status)) {
-      return res.status(400).json({ message: "Trang thai khong hop le" });
+      return res.status(400).json({ message: "Trạng thái không hợp lệ" });
     }
 
     await connection.beginTransaction();
@@ -1122,7 +1122,7 @@ router.patch("/orders/:id/status", requirePermission(PERMISSIONS.ORDERS_MANAGE),
 
     if (orders.length === 0) {
       await connection.rollback();
-      return res.status(404).json({ message: "Khong tim thay don hang" });
+      return res.status(404).json({ message: "Không tìm thấy đơn hàng" });
     }
 
     const order = orders[0];
@@ -1573,7 +1573,7 @@ router.post("/users", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISSION
     }
 
     if (!MANAGED_ROLES.includes(normalizedRole)) {
-      return res.status(400).json({ message: "Vai tro khong hop le" });
+      return res.status(400).json({ message: "Vai trò không hợp lệ" });
     }
 
     const blocked = ensureManageAccess(req, res, normalizedRole);
@@ -1584,7 +1584,7 @@ router.post("/users", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISSION
     }
 
     if (normalizedUsername && !/^[a-z0-9._-]{3,40}$/.test(normalizedUsername)) {
-      return res.status(400).json({ message: "Ten dang nhap chi gom chu thuong, so, dau cham, gach ngang hoac gach duoi va tu 3-40 ky tu" });
+      return res.status(400).json({ message: "Tên đăng nhập chỉ gồm chữ thường, số, dấu chấm, gạch ngang hoặc gạch dưới và từ 3-40 ký tự" });
     }
 
     const [existingUsers] = await db.query(
@@ -1592,7 +1592,7 @@ router.post("/users", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISSION
       [normalizedEmail, normalizedUsername || null]
     );
     if (existingUsers.length > 0) {
-      return res.status(409).json({ message: normalizedRole === "USER" ? "Email da ton tai" : "Ten dang nhap da ton tai" });
+      return res.status(409).json({ message: normalizedRole === "USER" ? "Email đã tồn tại" : "Tên đăng nhập đã tồn tại" });
     }
 
     const hashedPassword = await bcrypt.hash(String(password), 10);
@@ -1618,7 +1618,7 @@ router.post("/users", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISSION
     res.status(201).json({ message: "Da tao tai khoan", id: result.insertId });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Khong the tao tai khoan" });
+    res.status(500).json({ message: "Không thể tạo tài khoản" });
   }
 });
 
@@ -1630,11 +1630,11 @@ router.post("/staff", requirePermission(PERMISSIONS.STAFF_MANAGE), async (req, r
     const normalizedRole = String(role || "STAFF_SALES").trim().toUpperCase();
 
     if (!fullname || !normalizedUsername || !password) {
-      return res.status(400).json({ message: "Vui long nhap ho ten, ten dang nhap va mat khau" });
+      return res.status(400).json({ message: "Vui lòng nhập họ tên, tên đăng nhập và mật khẩu" });
     }
 
     if (!MANAGED_ROLES.includes(normalizedRole) || normalizedRole === "USER") {
-      return res.status(400).json({ message: "Vai tro nhan vien khong hop le" });
+      return res.status(400).json({ message: "Vai trò nhân viên không hợp lệ" });
     }
 
     if (String(password || "").length < 6) {
@@ -1642,7 +1642,7 @@ router.post("/staff", requirePermission(PERMISSIONS.STAFF_MANAGE), async (req, r
     }
 
     if (!/^[a-z0-9._-]{3,40}$/.test(normalizedUsername)) {
-      return res.status(400).json({ message: "Ten dang nhap chi gom chu thuong, so, dau cham, gach ngang hoac gach duoi va tu 3-40 ky tu" });
+      return res.status(400).json({ message: "Tên đăng nhập chỉ gồm chữ thường, số, dấu chấm, gạch ngang hoặc gạch dưới và từ 3-40 ký tự" });
     }
 
     const [oldUsers] = await db.query(
@@ -1651,7 +1651,7 @@ router.post("/staff", requirePermission(PERMISSIONS.STAFF_MANAGE), async (req, r
     );
 
     if (oldUsers.length > 0) {
-      return res.status(400).json({ message: "Ten dang nhap da ton tai" });
+      return res.status(400).json({ message: "Tên đăng nhập đã tồn tại" });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -1689,7 +1689,7 @@ router.put("/users/:id", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISS
     const normalizedEmail = normalizedRole === "USER" ? normalizeEmail(email) : buildStaffEmail(normalizedUsername);
 
     if (!Number.isInteger(userId) || userId <= 0) {
-      return res.status(400).json({ message: "Ma tai khoan khong hop le" });
+      return res.status(400).json({ message: "Mã tài khoản không hợp lệ" });
     }
 
     if (!fullname || (normalizedRole === "USER" ? !normalizedEmail : !normalizedUsername)) {
@@ -1697,11 +1697,11 @@ router.put("/users/:id", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISS
     }
 
     if (!MANAGED_ROLES.includes(normalizedRole)) {
-      return res.status(400).json({ message: "Vai tro khong hop le" });
+      return res.status(400).json({ message: "Vai trò không hợp lệ" });
     }
 
     if (normalizedUsername && !/^[a-z0-9._-]{3,40}$/.test(normalizedUsername)) {
-      return res.status(400).json({ message: "Ten dang nhap chi gom chu thuong, so, dau cham, gach ngang hoac gach duoi va tu 3-40 ky tu" });
+      return res.status(400).json({ message: "Tên đăng nhập chỉ gồm chữ thường, số, dấu chấm, gạch ngang hoặc gạch dưới và từ 3-40 ký tự" });
     }
 
     const blocked = ensureManageAccess(req, res, normalizedRole);
@@ -1710,7 +1710,7 @@ router.put("/users/:id", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISS
     const [targetUsers] = await db.query("SELECT id, role, permissions FROM users WHERE id = ?", [userId]);
 
     if (targetUsers.length === 0) {
-      return res.status(404).json({ message: "Khong tim thay tai khoan" });
+      return res.status(404).json({ message: "Không tìm thấy tài khoản" });
     }
 
     const targetBlocked = ensureManageAccess(req, res, targetUsers[0].role);
@@ -1722,7 +1722,7 @@ router.put("/users/:id", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISS
     );
 
     if (oldUsers.length > 0) {
-      return res.status(400).json({ message: normalizedRole === "USER" ? "Email da duoc tai khoan khac su dung" : "Ten dang nhap da duoc tai khoan khac su dung" });
+      return res.status(400).json({ message: normalizedRole === "USER" ? "Email đã được tài khoản khác sử dụng" : "Tên đăng nhập đã được tài khoản khác sử dụng" });
     }
 
     await db.query(
@@ -1756,13 +1756,13 @@ router.patch("/users/:id/permissions", requirePermission(PERMISSIONS.ROLES_MANAG
     const permissions = Array.isArray(req.body.permissions) ? req.body.permissions : [];
 
     if (!Number.isInteger(userId) || userId <= 0) {
-      return res.status(400).json({ message: "Ma tai khoan khong hop le" });
+      return res.status(400).json({ message: "Mã tài khoản không hợp lệ" });
     }
 
     const [targetUsers] = await db.query("SELECT id, role FROM users WHERE id = ? LIMIT 1", [userId]);
 
     if (targetUsers.length === 0) {
-      return res.status(404).json({ message: "Khong tim thay tai khoan" });
+      return res.status(404).json({ message: "Không tìm thấy tài khoản" });
     }
 
     const normalizedRole = String(targetUsers[0].role || "USER").toUpperCase();
@@ -1817,17 +1817,17 @@ router.delete("/users/:id", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERM
     const userId = Number(req.params.id);
 
     if (!Number.isInteger(userId) || userId <= 0) {
-      return res.status(400).json({ message: "Ma tai khoan khong hop le" });
+      return res.status(400).json({ message: "Mã tài khoản không hợp lệ" });
     }
 
     if (Number(req.user.id) === userId) {
-      return res.status(400).json({ message: "Khong the tu xoa tai khoan dang dang nhap" });
+      return res.status(400).json({ message: "Không thể tự xóa tài khoản đang đăng nhập" });
     }
 
     const [targetUsers] = await db.query("SELECT id, role FROM users WHERE id = ? LIMIT 1", [userId]);
 
     if (targetUsers.length === 0) {
-      return res.status(404).json({ message: "Khong tim thay tai khoan" });
+      return res.status(404).json({ message: "Không tìm thấy tài khoản" });
     }
 
     const blocked = ensureManageAccess(req, res, targetUsers[0].role);
@@ -1865,7 +1865,7 @@ router.delete("/users/:id", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERM
     res.json({ message: "Da xoa tai khoan" });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Khong the xoa tai khoan" });
+    res.status(500).json({ message: "Không thể xóa tài khoản" });
   }
 });
 
@@ -1932,11 +1932,11 @@ router.patch("/feedback/:id", requirePermission(PERMISSIONS.FEEDBACK_MANAGE), as
     const status = String(req.body.status || "").trim().toLowerCase();
 
     if (!Number.isInteger(feedbackId) || feedbackId <= 0) {
-      return res.status(400).json({ message: "Ma phan hoi khong hop le" });
+      return res.status(400).json({ message: "Mã phản hồi không hợp lệ" });
     }
 
     if (!["new", "in_progress", "replied", "closed"].includes(status)) {
-      return res.status(400).json({ message: "Trang thai phan hoi khong hop le" });
+      return res.status(400).json({ message: "Trạng thái phản hồi không hợp lệ" });
     }
 
     const [result] = await db.query(
@@ -1945,10 +1945,10 @@ router.patch("/feedback/:id", requirePermission(PERMISSIONS.FEEDBACK_MANAGE), as
     );
 
     if (result.affectedRows === 0) {
-      return res.status(404).json({ message: "Khong tim thay phan hoi" });
+      return res.status(404).json({ message: "Không tìm thấy phản hồi" });
     }
 
-    res.json({ message: "Da cap nhat trang thai phan hoi" });
+    res.json({ message: "Đã cập nhật trạng thái phản hồi" });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Loi server" });
@@ -1961,11 +1961,11 @@ router.post("/feedback/:id/reply", requirePermission(PERMISSIONS.FEEDBACK_MANAGE
     const reply = String(req.body.reply || "").trim();
 
     if (!Number.isInteger(feedbackId) || feedbackId <= 0) {
-      return res.status(400).json({ message: "Ma phan hoi khong hop le" });
+      return res.status(400).json({ message: "Mã phản hồi không hợp lệ" });
     }
 
     if (reply.length < 5 || reply.length > 2000) {
-      return res.status(400).json({ message: "Noi dung phan hoi can tu 5 den 2000 ky tu" });
+      return res.status(400).json({ message: "Nội dung phản hồi cần từ 5 đến 2000 ký tự" });
     }
 
     const [result] = await db.query(
@@ -1976,10 +1976,10 @@ router.post("/feedback/:id/reply", requirePermission(PERMISSIONS.FEEDBACK_MANAGE
     );
 
     if (result.affectedRows === 0) {
-      return res.status(404).json({ message: "Khong tim thay phan hoi" });
+      return res.status(404).json({ message: "Không tìm thấy phản hồi" });
     }
 
-    res.json({ message: "Da gui phan hoi den khach hang" });
+    res.json({ message: "Đã gửi phản hồi đến khách hàng" });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Loi server" });
@@ -2052,7 +2052,7 @@ router.post("/food-reviews/:id/reply", requirePermission(PERMISSIONS.FEEDBACK_MA
     const reply = String(req.body.reply || "").trim();
 
     if (!Number.isInteger(reviewId) || reviewId <= 0) {
-      return res.status(400).json({ message: "Ma danh gia khong hop le" });
+      return res.status(400).json({ message: "Mã đánh giá không hợp lệ" });
     }
 
     if (reply.length < 2 || reply.length > 2000) {
@@ -2067,10 +2067,10 @@ router.post("/food-reviews/:id/reply", requirePermission(PERMISSIONS.FEEDBACK_MA
     );
 
     if (result.affectedRows === 0) {
-      return res.status(404).json({ message: "Khong tim thay danh gia" });
+      return res.status(404).json({ message: "Không tìm thấy đánh giá" });
     }
 
-    res.json({ message: "Da luu phan hoi binh luan" });
+    res.json({ message: "Đã lưu phản hồi bình luận" });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Loi server" });
@@ -2083,7 +2083,7 @@ router.patch("/food-reviews/:id/visibility", requirePermission(PERMISSIONS.FEEDB
     const isVisible = Boolean(req.body.isVisible);
 
     if (!Number.isInteger(reviewId) || reviewId <= 0) {
-      return res.status(400).json({ message: "Ma danh gia khong hop le" });
+      return res.status(400).json({ message: "Mã đánh giá không hợp lệ" });
     }
 
     const [result] = await db.query(
@@ -2092,7 +2092,7 @@ router.patch("/food-reviews/:id/visibility", requirePermission(PERMISSIONS.FEEDB
     );
 
     if (result.affectedRows === 0) {
-      return res.status(404).json({ message: "Khong tim thay danh gia" });
+      return res.status(404).json({ message: "Không tìm thấy đánh giá" });
     }
 
     res.json({ message: isVisible ? "Da hien thi danh gia" : "Da an danh gia" });
@@ -2107,19 +2107,19 @@ router.delete("/food-reviews/:id", requirePermission(PERMISSIONS.FEEDBACK_MANAGE
     const reviewId = Number(req.params.id);
 
     if (!Number.isInteger(reviewId) || reviewId <= 0) {
-      return res.status(400).json({ message: "Ma danh gia khong hop le" });
+      return res.status(400).json({ message: "Mã đánh giá không hợp lệ" });
     }
 
     const [result] = await db.query("DELETE FROM food_reviews WHERE id = ?", [reviewId]);
 
     if (result.affectedRows === 0) {
-      return res.status(404).json({ message: "Khong tim thay danh gia" });
+      return res.status(404).json({ message: "Không tìm thấy đánh giá" });
     }
 
     res.json({ message: "Da xoa binh luan" });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Khong the xoa binh luan" });
+    res.status(500).json({ message: "Không thể xóa bình luận" });
   }
 });
 
