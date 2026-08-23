@@ -50,6 +50,18 @@ DB_NAME=foodhub_db
 JWT_SECRET=change_this_to_a_long_random_secret
 ```
 
+Tinh phi giao hang theo khoang cach bang OpenRouteService:
+
+```env
+ORS_API_KEY=your_openrouteservice_key
+STORE_LAT=10.2537
+STORE_LNG=105.9722
+SHIPPING_PRICE_PER_KM=4000
+SHIPPING_MAX_DISTANCE_KM=60
+```
+
+Neu chua co `ORS_API_KEY`, backend van fallback ve cach tinh phu phi theo tinh/thanh hien tai de khong chan dat hang.
+
 Khi dung Cloudflare Tunnel, tro subdomain API ve backend local:
 
 ```text

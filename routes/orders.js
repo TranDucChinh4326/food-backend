@@ -5,6 +5,11 @@ const { requireAuth } = require("../middleware/auth");
 
 const router = express.Router();
 const QR_PAYMENT_TTL_MINUTES = Number(process.env.QR_PAYMENT_TTL_MINUTES || 10);
+const ORS_API_KEY = process.env.ORS_API_KEY || "";
+const STORE_LAT = Number(process.env.STORE_LAT || 10.2537);
+const STORE_LNG = Number(process.env.STORE_LNG || 105.9722);
+const SHIPPING_PRICE_PER_KM = Number(process.env.SHIPPING_PRICE_PER_KM || 4000);
+const SHIPPING_MAX_DISTANCE_KM = Number(process.env.SHIPPING_MAX_DISTANCE_KM || 60);
 
 function isPositiveInteger(value) {
   return Number.isInteger(Number(value)) && Number(value) > 0;
@@ -76,6 +81,104 @@ function calculateShippingAreaSurcharge(address) {
   return 20000;
 }
 
+function normalizeAddressForDistance(address) {
+  return String(address || "")
+    .split("|")
+    .map(part => part.trim())
+    .filter(Boolean)
+    .join(", ");
+}
+
+async function geocodeDeliveryAddress(address) {
+  if (!ORS_API_KEY) return null;
+
+  const query = normalizeAddressForDistance(address);
+  if (!query) return null;
+
+  const url = new URL("https://api.openrouteservice.org/geocode/search");
+  url.searchParams.set("api_key", ORS_API_KEY);
+  url.searchParams.set("text", query);
+  url.searchParams.set("boundary.country", "VN");
+  url.searchParams.set("size", "1");
+
+  const response = await fetch(url);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !Array.isArray(data.features) || data.features.length === 0) {
+    throw new Error(data.error?.message || "Khong the dinh vi dia chi giao hang");
+  }
+
+  const coordinates = data.features[0]?.geometry?.coordinates;
+  if (!Array.isArray(coordinates) || coordinates.length < 2) {
+    throw new Error("Dia chi giao hang khong co toa do hop le");
+  }
+
+  return {
+    lng: Number(coordinates[0]),
+    lat: Number(coordinates[1]),
+    label: data.features[0]?.properties?.label || query
+  };
+}
+
+async function getDrivingDistanceKm(address) {
+  if (!ORS_API_KEY || !Number.isFinite(STORE_LAT) || !Number.isFinite(STORE_LNG)) return null;
+
+  const destination = await geocodeDeliveryAddress(address);
+  if (!destination) return null;
+
+  const response = await fetch("https://api.openrouteservice.org/v2/directions/driving-car", {
+    method: "POST",
+    headers: {
+      "Authorization": ORS_API_KEY,
+      "Content-Type": "application/json",
+      "Accept": "application/json"
+    },
+    body: JSON.stringify({
+      coordinates: [
+        [STORE_LNG, STORE_LAT],
+        [destination.lng, destination.lat]
+      ]
+    })
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !Array.isArray(data.routes) || !data.routes[0]?.summary) {
+    throw new Error(data.error?.message || "Khong the do khoang cach giao hang");
+  }
+
+  return {
+    distanceKm: Number(data.routes[0].summary.distance || 0) / 1000,
+    durationMinutes: Math.ceil(Number(data.routes[0].summary.duration || 0) / 60),
+    destinationLabel: destination.label
+  };
+}
+
+async function calculateDistanceShippingFee(baseFee, customerAddress) {
+  try {
+    const distance = await getDrivingDistanceKm(customerAddress);
+    if (!distance) return null;
+
+    if (SHIPPING_MAX_DISTANCE_KM > 0 && distance.distanceKm > SHIPPING_MAX_DISTANCE_KM) {
+      const error = new Error(`Dia chi cach cua hang ${distance.distanceKm.toFixed(1)}km, vuot qua pham vi giao hang ${SHIPPING_MAX_DISTANCE_KM}km`);
+      error.status = 400;
+      throw error;
+    }
+
+    const distanceFee = Math.ceil(distance.distanceKm * Math.max(0, SHIPPING_PRICE_PER_KM) / 1000) * 1000;
+    return {
+      fee: Math.max(0, baseFee + distanceFee),
+      baseFee,
+      distanceFee,
+      distanceKm: Number(distance.distanceKm.toFixed(2)),
+      durationMinutes: distance.durationMinutes,
+      destinationLabel: distance.destinationLabel,
+      source: "distance"
+    };
+  } catch (error) {
+    if (error.status) throw error;
+    console.error("Distance shipping failed:", error.message);
+    return null;
+  }
+}
+
 async function resolveShippingMethod(shippingMethodId, customerAddress = "", connection = db) {
   const methods = await getActiveShippingMethods(connection);
   const selectedId = Number(shippingMethodId || 0);
@@ -83,6 +186,16 @@ async function resolveShippingMethod(shippingMethodId, customerAddress = "", con
 
   if (selected) {
     const baseFee = Math.max(0, Number(selected.fee || 0));
+    const distanceFee = await calculateDistanceShippingFee(baseFee, customerAddress);
+    if (distanceFee) {
+      return {
+        id: Number(selected.id),
+        name: selected.name,
+        estimatedTime: selected.estimated_time || "",
+        ...distanceFee
+      };
+    }
+
     const areaSurcharge = calculateShippingAreaSurcharge(customerAddress);
     return {
       id: Number(selected.id),
@@ -90,7 +203,8 @@ async function resolveShippingMethod(shippingMethodId, customerAddress = "", con
       fee: baseFee + areaSurcharge,
       baseFee,
       areaSurcharge,
-      estimatedTime: selected.estimated_time || ""
+      estimatedTime: selected.estimated_time || "",
+      source: "area"
     };
   }
 
@@ -364,6 +478,27 @@ router.get("/shipping-methods", async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Khong the tai hinh thuc giao hang" });
+  }
+});
+
+router.post("/shipping/quote", async (req, res) => {
+  try {
+    const shippingMethod = await resolveShippingMethod(req.body.shippingMethodId, req.body.customerAddress || "");
+    res.json({
+      shippingMethodId: shippingMethod.id,
+      name: shippingMethod.name,
+      fee: shippingMethod.fee,
+      baseFee: shippingMethod.baseFee || 0,
+      areaSurcharge: shippingMethod.areaSurcharge || 0,
+      distanceFee: shippingMethod.distanceFee || 0,
+      distanceKm: shippingMethod.distanceKm || null,
+      durationMinutes: shippingMethod.durationMinutes || null,
+      source: shippingMethod.source || "area",
+      estimatedTime: shippingMethod.estimatedTime || ""
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(error.status || 500).json({ message: error.message || "Khong the tinh phi giao hang" });
   }
 });
 
