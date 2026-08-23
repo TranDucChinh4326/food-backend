@@ -633,6 +633,7 @@ router.get("/vouchers/available", requireAuth, async (req, res) => {
               discounts.apply_to, discounts.min_order, discounts.max_discount, discounts.usage_limit,
               discounts.used_count, discounts.starts_at, discounts.expires_at,
               COALESCE(claim_stats.claimed_count, 0) AS claimed_count,
+              COALESCE(user_discounts.quantity, 0) AS owned_quantity,
               COALESCE(user_discounts.quantity - user_discounts.used_count, 0) AS owned_remaining
        FROM discounts
        LEFT JOIN (
@@ -652,6 +653,7 @@ router.get("/vouchers/available", requireAuth, async (req, res) => {
 
     res.json(rows.map(row => ({
       ...mapDiscountRow(row),
+      ownedQuantity: Number(row.owned_quantity || 0),
       ownedRemaining: Number(row.owned_remaining || 0)
     })));
   } catch (error) {
