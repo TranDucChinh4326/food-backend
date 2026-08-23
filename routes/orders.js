@@ -496,6 +496,20 @@ router.get("/shipping-methods", async (req, res) => {
   }
 });
 
+router.post("/shipping/geocode", async (req, res) => {
+  try {
+    const location = await geocodeDeliveryAddress(req.body.customerAddress || "");
+    if (!location) {
+      return res.status(400).json({ message: "Khong tim thay toa do cho dia chi nay" });
+    }
+
+    res.json(location);
+  } catch (error) {
+    console.error(error);
+    res.status(error.status || 500).json({ message: error.message || "Khong the dinh vi dia chi giao hang" });
+  }
+});
+
 router.post("/shipping/quote", async (req, res) => {
   try {
     const shippingMethod = await resolveShippingMethod(req.body.shippingMethodId, req.body.customerAddress || "", db, req.body.customerLocation || null);
