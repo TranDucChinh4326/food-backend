@@ -119,10 +119,25 @@ async function geocodeDeliveryAddress(address) {
   };
 }
 
-async function getDrivingDistanceKm(address) {
+function normalizeDeliveryLocation(location) {
+  if (!location || typeof location !== "object") return null;
+
+  const lat = Number(location.lat);
+  const lng = Number(location.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+
+  return {
+    lat,
+    lng,
+    label: String(location.label || "").trim()
+  };
+}
+
+async function getDrivingDistanceKm(address, location = null) {
   if (!ORS_API_KEY || !Number.isFinite(STORE_LAT) || !Number.isFinite(STORE_LNG)) return null;
 
-  const destination = await geocodeDeliveryAddress(address);
+  const destination = normalizeDeliveryLocation(location) || await geocodeDeliveryAddress(address);
   if (!destination) return null;
 
   const response = await fetch("https://api.openrouteservice.org/v2/directions/driving-car", {
@@ -151,9 +166,9 @@ async function getDrivingDistanceKm(address) {
   };
 }
 
-async function calculateDistanceShippingFee(baseFee, customerAddress) {
+async function calculateDistanceShippingFee(baseFee, customerAddress, customerLocation = null) {
   try {
-    const distance = await getDrivingDistanceKm(customerAddress);
+    const distance = await getDrivingDistanceKm(customerAddress, customerLocation);
     if (!distance) return null;
 
     if (SHIPPING_MAX_DISTANCE_KM > 0 && distance.distanceKm > SHIPPING_MAX_DISTANCE_KM) {
@@ -179,14 +194,14 @@ async function calculateDistanceShippingFee(baseFee, customerAddress) {
   }
 }
 
-async function resolveShippingMethod(shippingMethodId, customerAddress = "", connection = db) {
+async function resolveShippingMethod(shippingMethodId, customerAddress = "", connection = db, customerLocation = null) {
   const methods = await getActiveShippingMethods(connection);
   const selectedId = Number(shippingMethodId || 0);
   const selected = methods.find(method => Number(method.id) === selectedId) || methods[0] || null;
 
   if (selected) {
     const baseFee = Math.max(0, Number(selected.fee || 0));
-    const distanceFee = await calculateDistanceShippingFee(baseFee, customerAddress);
+    const distanceFee = await calculateDistanceShippingFee(baseFee, customerAddress, customerLocation);
     if (distanceFee) {
       return {
         id: Number(selected.id),
@@ -483,7 +498,7 @@ router.get("/shipping-methods", async (req, res) => {
 
 router.post("/shipping/quote", async (req, res) => {
   try {
-    const shippingMethod = await resolveShippingMethod(req.body.shippingMethodId, req.body.customerAddress || "");
+    const shippingMethod = await resolveShippingMethod(req.body.shippingMethodId, req.body.customerAddress || "", db, req.body.customerLocation || null);
     res.json({
       shippingMethodId: shippingMethod.id,
       name: shippingMethod.name,
@@ -513,6 +528,7 @@ router.post("/", requireAuth, async (req, res) => {
       customerName,
       customerPhone,
       customerAddress,
+      customerLocation = null,
       customerNote = "",
       paymentMethod = "cod",
       shippingMethodId = null,
@@ -593,7 +609,7 @@ router.post("/", requireAuth, async (req, res) => {
       };
     });
     const itemsSubtotal = orderItems.reduce((sum, item) => sum + item.subtotal, 0);
-    const shippingMethod = await resolveShippingMethod(shippingMethodId, customerAddress, connection);
+    const shippingMethod = await resolveShippingMethod(shippingMethodId, customerAddress, connection, customerLocation);
     const shippingFee = shippingMethod.fee;
     const ownedDiscount = userDiscountId ? await findOwnedDiscount(req.user.id, userDiscountId, itemsSubtotal) : null;
     const discount = ownedDiscount || await findUsableDiscount(discountCode, itemsSubtotal, req.user.id);
@@ -1001,7 +1017,7 @@ router.post("/discount/preview", requireAuth, async (req, res) => {
   // Frontend gọi để tính thử voucher trên tiền món/phí ship trước khi tạo đơn thật.
   try {
     const itemsSubtotal = Math.max(0, Number(req.body.itemsSubtotal || 0));
-    const shippingMethod = await resolveShippingMethod(req.body.shippingMethodId, req.body.customerAddress || "");
+    const shippingMethod = await resolveShippingMethod(req.body.shippingMethodId, req.body.customerAddress || "", db, req.body.customerLocation || null);
     const shippingFee = shippingMethod.fee;
     const discount = req.body.userDiscountId
       ? await findOwnedDiscount(req.user.id, req.body.userDiscountId, itemsSubtotal)
