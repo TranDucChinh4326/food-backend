@@ -1068,6 +1068,18 @@ router.get("/stats", requireAnyPermission([PERMISSIONS.STATS_VIEW, PERMISSIONS.O
       params.push(to);
     }
 
+    if (!from && !to) {
+      if (trend === "day") {
+        where.push("DATE(created_at) >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)");
+      } else if (trend === "month") {
+        where.push("created_at >= DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 11 MONTH), '%Y-%m-01')");
+      } else if (trend === "quarter") {
+        where.push("created_at >= DATE_SUB(CURDATE(), INTERVAL 21 MONTH)");
+      } else if (trend === "year") {
+        where.push("YEAR(created_at) >= YEAR(CURDATE()) - 5");
+      }
+    }
+
     const orderWhere = where.length ? `WHERE ${where.join(" AND ")}` : "";
     const detailConditions = [
       "orders.status = 'done'",
