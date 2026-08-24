@@ -932,6 +932,10 @@ router.post("/admin-pin/verify", requireAuth, async (req, res) => {
       return res.status(400).json({ message: "Vui lòng nhập mã PIN" });
     }
 
+    if (!/^\d{6}$/.test(pin)) {
+      return res.status(400).json({ message: "Mã PIN quản trị phải gồm đúng 6 chữ số" });
+    }
+
     const [users] = await db.query(
       "SELECT id, password, role, is_active FROM users WHERE id = ? LIMIT 1",
       [req.user.id]
