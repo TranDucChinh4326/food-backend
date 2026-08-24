@@ -1305,6 +1305,15 @@ router.patch("/orders/:id/status", requirePermission(PERMISSIONS.ORDERS_MANAGE),
     }
 
     await connection.commit();
+    req.app.get("emitOrderEvent")?.("order:updated", {
+      order: {
+        id: orderId,
+        userId: order.user_id,
+        status,
+        paymentStatus: nextPaymentStatus || order.payment_status,
+        updatedAt: new Date().toISOString()
+      }
+    });
     res.json({ message: "Cap nhat trang thai thanh cong" });
   } catch (error) {
     await connection.rollback();
@@ -1343,6 +1352,21 @@ router.patch("/orders/:id/payment", requirePermission(PERMISSIONS.ORDERS_MANAGE)
     if (paymentStatus === "paid") {
       await db.query("UPDATE payment_sessions SET status = 'paid', paid_at = NOW() WHERE order_id = ?", [orderId]);
     }
+
+    const [[updatedOrder]] = await db.query(
+      "SELECT id, user_id, status, payment_status FROM orders WHERE id = ? LIMIT 1",
+      [orderId]
+    );
+
+    req.app.get("emitOrderEvent")?.("order:updated", {
+      order: {
+        id: orderId,
+        userId: updatedOrder?.user_id,
+        status: updatedOrder?.status || nextOrderStatus,
+        paymentStatus: updatedOrder?.payment_status || paymentStatus,
+        updatedAt: new Date().toISOString()
+      }
+    });
 
     res.json({ message: "Cập nhật thanh toan thành công" });
   } catch (error) {

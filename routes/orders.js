@@ -940,6 +940,19 @@ router.post("/vouchers/claim", requireAuth, async (req, res) => {
 
     await connection.commit();
 
+    req.app.get("emitOrderEvent")?.("order:created", {
+      order: {
+        id: orderId,
+        userId: req.user.id,
+        status: orderStatus,
+        paymentMethod: normalizedPaymentMethod,
+        paymentStatus,
+        totalPrice,
+        customerName: customerName.trim(),
+        createdAt: new Date().toISOString()
+      }
+    });
+
     res.status(201).json({
       message: "Da nhan voucher",
       discount: mapDiscountRow(discount)
@@ -1016,6 +1029,16 @@ router.post("/:id/payment/cancel", requireAuth, async (req, res) => {
     await restoreUsedVoucher(connection, order);
 
     await connection.commit();
+    req.app.get("emitOrderEvent")?.("order:updated", {
+      order: {
+        id: orderId,
+        userId: req.user.id,
+        status: "cancelled",
+        paymentStatus: "cancelled",
+        updatedAt: new Date().toISOString()
+      }
+    });
+
     res.json({ message: "Đã hủy giao dich thanh toan QR" });
   } catch (error) {
     await connection.rollback();

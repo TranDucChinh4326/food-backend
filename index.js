@@ -3,10 +3,15 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
+const http = require("http");
+const jwt = require("jsonwebtoken");
+const { Server } = require("socket.io");
 const db = require("./db");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const JWT_SECRET = process.env.JWT_SECRET || "foodhub_dev_secret_change_me";
+const server = http.createServer(app);
 app.set("trust proxy", 1);
 const allowedOrigins = (process.env.CORS_ORIGIN || "")
   .split(",")
@@ -69,6 +74,59 @@ app.use("/api/food-reviews", require("./routes/food-reviews"));
 app.use("/api/payments", require("./routes/payments"));
 app.use("/api/chat", require("./routes/chat"));
 app.use("/api/admin", require("./routes/admin"));
+
+const io = new Server(server, {
+  cors: {
+    origin(origin, callback) {
+      if (isAllowedOrigin(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(new Error("Origin is not allowed by Socket.IO CORS"));
+    }
+  }
+});
+
+io.use(async (socket, next) => {
+  try {
+    const token = socket.handshake.auth?.token || socket.handshake.query?.token;
+    if (!token) return next(new Error("AUTH_REQUIRED"));
+
+    const payload = jwt.verify(String(token), JWT_SECRET);
+    const [users] = await db.query(
+      "SELECT id, fullname, email, role, is_active FROM users WHERE id = ? LIMIT 1",
+      [payload.id]
+    );
+
+    if (users.length === 0 || !users[0].is_active) return next(new Error("AUTH_INVALID"));
+
+    socket.user = {
+      ...payload,
+      ...users[0],
+      role: String(users[0].role || payload.role || "USER").toUpperCase()
+    };
+    next();
+  } catch (error) {
+    next(new Error("AUTH_INVALID"));
+  }
+});
+
+io.on("connection", socket => {
+  socket.join(`user:${socket.user.id}`);
+  if (socket.user.role !== "USER") {
+    socket.join("admins");
+  }
+});
+
+app.set("io", io);
+app.set("emitOrderEvent", (eventName, payload = {}) => {
+  const order = payload.order || payload;
+  const userId = order?.userId || order?.user_id || payload.userId || payload.user_id;
+
+  io.to("admins").emit(eventName, payload);
+  if (userId) io.to(`user:${userId}`).emit(eventName, payload);
+});
 
 app.get("/", (req, res) => {
   res.send("FoodHub API đang chạy");
@@ -676,7 +734,7 @@ async function ensureSchema() {
 }
 
 ensureSchema().finally(() => {
-  app.listen(PORT, () => {
+  server.listen(PORT, () => {
     console.log(`Server running at http://localhost:${PORT}`);
   });
 });
