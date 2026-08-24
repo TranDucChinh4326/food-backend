@@ -1323,26 +1323,56 @@ router.put("/categories/:id", requirePermission(PERMISSIONS.FOODS_MANAGE), async
   }
 });
 
-router.delete("/categories/:id", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req, res) => {
+router.patch("/categories/:id/visibility", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req, res) => {
   try {
     const categoryId = Number(req.params.id);
+    const isActive = req.body.isActive === true || req.body.isActive === 1 || req.body.isActive === "1" ? 1 : 0;
 
     if (!Number.isInteger(categoryId) || categoryId <= 0) {
-      return res.status(400).json({ message: "Ma danh mục không hợp lệ" });
+      return res.status(400).json({ message: "Mã danh mục không hợp lệ" });
     }
 
     const [result] = await db.query(
-      "UPDATE categories SET is_active = 0 WHERE id = ? OR parent_id = ?",
-      [categoryId, categoryId]
+      "UPDATE categories SET is_active = ? WHERE id = ? OR parent_id = ?",
+      [isActive, categoryId, categoryId]
     );
 
     if (result.affectedRows === 0) {
       return res.status(404).json({ message: "Không tìm thấy danh mục" });
     }
 
-    res.json({ message: "Đã ẩn danh mục" });
+    res.json({ message: isActive ? "Đã hiện danh mục" : "Đã ẩn danh mục" });
   } catch (error) {
     console.error(error);
+    res.status(500).json({ message: "Lỗi server" });
+  }
+});
+
+router.delete("/categories/:id", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req, res) => {
+  try {
+    const categoryId = Number(req.params.id);
+
+    if (!Number.isInteger(categoryId) || categoryId <= 0) {
+      return res.status(400).json({ message: "Mã danh mục không hợp lệ" });
+    }
+
+    const [result] = await db.query(
+      "DELETE FROM categories WHERE id = ?",
+      [categoryId]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "Không tìm thấy danh mục" });
+    }
+
+    res.json({ message: "Đã xóa danh mục" });
+  } catch (error) {
+    console.error(error);
+    if (error.code === "ER_ROW_IS_REFERENCED_2" || error.code === "ER_ROW_IS_REFERENCED") {
+      return res.status(409).json({
+        message: "Danh mục này đang có danh mục con hoặc món ăn nên không thể xóa vĩnh viễn. Hãy chuyển hoặc xóa dữ liệu liên quan trước."
+      });
+    }
     res.status(500).json({ message: "Lỗi server" });
   }
 });
