@@ -6,8 +6,8 @@ const { requireAuth } = require("../middleware/auth");
 const router = express.Router();
 const QR_PAYMENT_TTL_MINUTES = Number(process.env.QR_PAYMENT_TTL_MINUTES || 10);
 const ORS_API_KEY = process.env.ORS_API_KEY || "";
-const STORE_LAT = Number(process.env.STORE_LAT || 10.2537);
-const STORE_LNG = Number(process.env.STORE_LNG || 105.9722);
+const STORE_LAT = Number(process.env.STORE_LAT || 10.100528);
+const STORE_LNG = Number(process.env.STORE_LNG || 105.686583);
 const SHIPPING_PRICE_PER_KM = Number(process.env.SHIPPING_PRICE_PER_KM || 4000);
 const SHIPPING_MAX_DISTANCE_KM = Number(process.env.SHIPPING_MAX_DISTANCE_KM || 60);
 
