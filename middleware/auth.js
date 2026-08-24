@@ -72,6 +72,22 @@ async function hydrateUser(req, res) {
   return true;
 }
 
+async function touchUserLastSeen(userId) {
+  if (!userId) return;
+
+  try {
+    await db.query(
+      `UPDATE users
+       SET last_seen_at = NOW()
+       WHERE id = ?
+         AND (last_seen_at IS NULL OR last_seen_at < NOW() - INTERVAL 1 MINUTE)`,
+      [userId]
+    );
+  } catch (error) {
+    console.error("User last seen update failed:", error.message);
+  }
+}
+
 function getToken(req) {
   const header = req.headers.authorization || "";
 
@@ -104,6 +120,7 @@ function requireAdmin(req, res, next) {
     try {
       const ok = await hydrateUser(req, res);
       if (!ok) return;
+      await touchUserLastSeen(req.user.id);
 
       if (!isAdmin(req.user)) {
         return res.status(403).json({ message: "Bạn không có quyền quản trị" });
@@ -125,6 +142,7 @@ function requirePermission(permission) {
       try {
         const ok = await hydrateUser(req, res);
         if (!ok) return;
+        await touchUserLastSeen(req.user.id);
 
         if (!hasPermission(req.user, permission)) {
           return res.status(403).json({ message: "Bạn không có quyền thực hiện thao tác này" });
@@ -145,6 +163,7 @@ function requireAnyPermission(permissions) {
       try {
         const ok = await hydrateUser(req, res);
         if (!ok) return;
+        await touchUserLastSeen(req.user.id);
 
         if (!permissions.some(permission => hasPermission(req.user, permission))) {
           return res.status(403).json({ message: "Bạn không có quyền thực hiện thao tác này" });
@@ -182,6 +201,7 @@ module.exports = {
   ADMIN_ROLE,
   PERMISSIONS,
   hasPermission,
+  touchUserLastSeen,
   requireAuth,
   requireAdmin,
   requirePermission,

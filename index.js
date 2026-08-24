@@ -201,6 +201,15 @@ async function ensureSchema() {
   }
 
   try {
+    await db.query("ALTER TABLE users ADD COLUMN last_seen_at TIMESTAMP NULL DEFAULT NULL");
+    console.log("Added users.last_seen_at column");
+  } catch (error) {
+    if (error.code !== "ER_DUP_FIELDNAME") {
+      console.error("User last seen schema check failed:", error.message);
+    }
+  }
+
+  try {
     await db.query("ALTER TABLE users DROP COLUMN full_name");
     console.log("Dropped duplicate users.full_name column");
   } catch (error) {

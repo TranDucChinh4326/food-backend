@@ -8,7 +8,7 @@ const multer = require("multer");
 const nodemailer = require("nodemailer");
 const { v2: cloudinary } = require("cloudinary");
 const db = require("../db");
-const { requireAuth } = require("../middleware/auth");
+const { requireAuth, touchUserLastSeen } = require("../middleware/auth");
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "foodhub_dev_secret_change_me";
@@ -599,6 +599,7 @@ function sendAuthResponse(res, user) {
     return res.status(403).json({ message: "Tài khoản đã bị khóa" });
   }
 
+  touchUserLastSeen(user.id);
   const token = signToken(user);
   const responseUser = publicUser(user);
 
@@ -1204,6 +1205,7 @@ router.delete("/addresses/:id", requireAuth, async (req, res) => {
 
 router.get("/me", requireAuth, async (req, res) => {
   try {
+    await touchUserLastSeen(req.user.id);
     const [users] = await db.query(
       "SELECT id, username, fullname, email, avatar, phone, address, role, email_verified AS emailVerified, password_set AS passwordSet, created_at FROM users WHERE id = ?",
       [req.user.id]
@@ -1217,6 +1219,16 @@ router.get("/me", requireAuth, async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Lỗi server" });
+  }
+});
+
+router.post("/ping", requireAuth, async (req, res) => {
+  try {
+    await touchUserLastSeen(req.user.id);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Không thể cập nhật trạng thái online" });
   }
 });
 
