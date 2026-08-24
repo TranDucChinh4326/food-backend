@@ -1494,16 +1494,41 @@ router.put("/foods/:id", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req
   }
 });
 
+router.patch("/foods/:id/visibility", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req, res) => {
+  try {
+    const foodId = Number(req.params.id);
+    const isActive = req.body.isActive === true || req.body.isActive === 1 || req.body.isActive === "1" ? 1 : 0;
+
+    if (!Number.isInteger(foodId) || foodId <= 0) {
+      return res.status(400).json({ message: "Mã món không hợp lệ" });
+    }
+
+    const [result] = await db.query(
+      "UPDATE foods SET is_active = ? WHERE id = ?",
+      [isActive, foodId]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "Không tìm thấy món ăn" });
+    }
+
+    res.json({ message: isActive ? "Đã hiện món trên thực đơn" : "Đã ẩn món khỏi thực đơn" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Lỗi server" });
+  }
+});
+
 router.delete("/foods/:id", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req, res) => {
   try {
     const foodId = Number(req.params.id);
 
     if (!Number.isInteger(foodId) || foodId <= 0) {
-      return res.status(400).json({ message: "Ma mon không hợp lệ" });
+      return res.status(400).json({ message: "Mã món không hợp lệ" });
     }
 
     const [result] = await db.query(
-      "UPDATE foods SET is_active = 0 WHERE id = ?",
+      "DELETE FROM foods WHERE id = ?",
       [foodId]
     );
 
@@ -1511,9 +1536,14 @@ router.delete("/foods/:id", requirePermission(PERMISSIONS.FOODS_MANAGE), async (
       return res.status(404).json({ message: "Không tìm thấy món ăn" });
     }
 
-    res.json({ message: "Đã ẩn mon khoi menu" });
+    res.json({ message: "Đã xóa món ăn" });
   } catch (error) {
     console.error(error);
+    if (error.code === "ER_ROW_IS_REFERENCED_2" || error.code === "ER_ROW_IS_REFERENCED") {
+      return res.status(409).json({
+        message: "Món này đã phát sinh đơn hàng nên không thể xóa vĩnh viễn. Hãy dùng nút Ẩn món."
+      });
+    }
     res.status(500).json({ message: "Lỗi server" });
   }
 });
