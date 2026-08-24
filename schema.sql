@@ -54,6 +54,28 @@ CREATE TABLE IF NOT EXISTS users (
   UNIQUE KEY email (email)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS admin_audit_logs (
+  id INT NOT NULL AUTO_INCREMENT,
+  actor_id INT DEFAULT NULL,
+  actor_name VARCHAR(150) DEFAULT NULL,
+  actor_role VARCHAR(40) DEFAULT NULL,
+  action VARCHAR(40) NOT NULL,
+  module VARCHAR(80) NOT NULL,
+  target_type VARCHAR(80) DEFAULT NULL,
+  target_id VARCHAR(80) DEFAULT NULL,
+  method VARCHAR(10) NOT NULL,
+  path VARCHAR(255) NOT NULL,
+  details JSON DEFAULT NULL,
+  ip_address VARCHAR(80) DEFAULT NULL,
+  user_agent VARCHAR(255) DEFAULT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY admin_audit_actor_idx (actor_id),
+  KEY admin_audit_created_idx (created_at),
+  KEY admin_audit_module_idx (module),
+  CONSTRAINT admin_audit_actor_fk FOREIGN KEY (actor_id) REFERENCES users (id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS email_verification_tokens (
   id INT NOT NULL AUTO_INCREMENT,
   user_id INT NOT NULL,

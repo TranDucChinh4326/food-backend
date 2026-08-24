@@ -173,6 +173,115 @@ function normalizeDiscountCode(code) {
   return String(code || "").trim().toUpperCase().replace(/\s+/g, "");
 }
 
+const AUDIT_METHOD_ACTIONS = {
+  POST: "create",
+  PUT: "update",
+  PATCH: "update",
+  DELETE: "delete"
+};
+
+const AUDIT_MODULE_LABELS = {
+  announcements: "Thông báo",
+  discounts: "Mã giảm giá",
+  "shipping-methods": "Phí vận chuyển",
+  orders: "Đơn hàng",
+  categories: "Danh mục",
+  foods: "Món ăn",
+  users: "Tài khoản",
+  staff: "Nhân viên",
+  feedback: "Phản hồi",
+  "food-reviews": "Bình luận món"
+};
+
+const AUDIT_SENSITIVE_KEYS = new Set([
+  "password",
+  "newPassword",
+  "confirmPassword",
+  "token",
+  "accessToken",
+  "refreshToken",
+  "authorization"
+]);
+
+function getAuditModule(pathname) {
+  const segment = String(pathname || "").split("/").filter(Boolean)[0] || "admin";
+  return {
+    key: segment,
+    label: AUDIT_MODULE_LABELS[segment] || segment
+  };
+}
+
+function getAuditTarget(pathname) {
+  const segments = String(pathname || "").split("/").filter(Boolean);
+  return {
+    type: segments[0] || "admin",
+    id: segments[1] || null
+  };
+}
+
+function sanitizeAuditDetails(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => !AUDIT_SENSITIVE_KEYS.has(key))
+      .map(([key, item]) => {
+        if (item && typeof item === "object") return [key, "[object]"];
+        const text = String(item ?? "");
+        return [key, text.length > 180 ? `${text.slice(0, 180)}...` : item];
+      })
+  );
+}
+
+async function recordAdminAuditLog(req, action, statusCode) {
+  if (!req.user || String(req.user.role || "").toUpperCase() === "USER") return;
+
+  const moduleInfo = getAuditModule(req.path);
+  const target = getAuditTarget(req.path);
+  const details = sanitizeAuditDetails(req.body);
+  const actorName = req.user.fullname || req.user.username || req.user.email || `User #${req.user.id}`;
+
+  try {
+    await db.query(
+      `INSERT INTO admin_audit_logs
+        (actor_id, actor_name, actor_role, action, module, target_type, target_id, method, path, details, ip_address, user_agent)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        req.user.id,
+        actorName,
+        req.user.role || null,
+        action,
+        moduleInfo.label,
+        target.type,
+        target.id,
+        req.method,
+        req.originalUrl,
+        details ? JSON.stringify({ ...details, statusCode }) : JSON.stringify({ statusCode }),
+        req.ip || null,
+        String(req.get("user-agent") || "").slice(0, 255)
+      ]
+    );
+  } catch (error) {
+    console.error("Admin audit log write failed:", error.message);
+  }
+}
+
+router.use((req, res, next) => {
+  const action = AUDIT_METHOD_ACTIONS[req.method];
+  if (!action) {
+    next();
+    return;
+  }
+
+  res.on("finish", () => {
+    if (res.statusCode >= 200 && res.statusCode < 400) {
+      recordAdminAuditLog(req, action, res.statusCode);
+    }
+  });
+
+  next();
+});
+
 function slugifyCategory(value) {
   return String(value || "")
     .normalize("NFD")
@@ -415,6 +524,49 @@ router.get("/permissions", requirePermission(PERMISSIONS.ROLES_MANAGE), (req, re
       { value: PERMISSIONS.STATS_VIEW, label: "Xem thống kê" }
     ]
   });
+});
+
+router.get("/audit-logs", requireAnyPermission([PERMISSIONS.STATS_VIEW, PERMISSIONS.ROLES_MANAGE, PERMISSIONS.STAFF_MANAGE]), async (req, res) => {
+  try {
+    const search = String(req.query.search || "").trim();
+    const moduleFilter = String(req.query.module || "all").trim();
+    const actionFilter = String(req.query.action || "all").trim();
+    const limit = Math.min(Math.max(Number(req.query.limit) || 80, 20), 200);
+    const where = [];
+    const params = [];
+
+    if (search) {
+      where.push("(actor_name LIKE ? OR module LIKE ? OR path LIKE ? OR target_id LIKE ?)");
+      const keyword = `%${search}%`;
+      params.push(keyword, keyword, keyword, keyword);
+    }
+
+    if (moduleFilter && moduleFilter !== "all") {
+      where.push("module = ?");
+      params.push(moduleFilter);
+    }
+
+    if (actionFilter && actionFilter !== "all") {
+      where.push("action = ?");
+      params.push(actionFilter);
+    }
+
+    const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+    const [rows] = await db.query(
+      `SELECT id, actor_id, actor_name, actor_role, action, module, target_type, target_id,
+              method, path, details, ip_address, user_agent, created_at
+       FROM admin_audit_logs
+       ${whereSql}
+       ORDER BY created_at DESC, id DESC
+       LIMIT ?`,
+      [...params, limit]
+    );
+
+    res.json({ logs: rows });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Không thể tải nhật ký thao tác" });
+  }
 });
 
 router.get("/announcements", requirePermission(PERMISSIONS.ANNOUNCEMENTS_MANAGE), async (req, res) => {
