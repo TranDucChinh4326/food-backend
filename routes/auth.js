@@ -90,8 +90,8 @@ function publicUser(user) {
 
 function validatePin(pin) {
   const value = String(pin || "").trim();
-  if (!/^\d{4,6}$/.test(value)) {
-    return "Mã PIN phải gồm 4-6 chữ số";
+  if (!/^\d{6}$/.test(value)) {
+    return "Mã PIN phải gồm đúng 6 chữ số";
   }
   return "";
 }
