@@ -48,6 +48,7 @@ DB_USER=root
 DB_PASSWORD=
 DB_NAME=foodhub_db
 JWT_SECRET=change_this_to_a_long_random_secret
+JWT_EXPIRES_IN=1d
 ```
 
 Tinh phi giao hang theo khoang cach bang OpenRouteService:

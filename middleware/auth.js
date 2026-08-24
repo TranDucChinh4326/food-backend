@@ -111,7 +111,11 @@ function requireAuth(req, res, next) {
     req.user = jwt.verify(token, JWT_SECRET);
     next();
   } catch (error) {
-    res.status(401).json({ message: "Phiên đăng nhập không hợp lệ" });
+    res.status(401).json({
+      message: error.name === "TokenExpiredError"
+        ? "Phi\u00ean \u0111\u0103ng nh\u1eadp \u0111\u00e3 h\u1ebft h\u1ea1n, vui l\u00f2ng \u0111\u0103ng nh\u1eadp l\u1ea1i"
+        : "Phi\u00ean \u0111\u0103ng nh\u1eadp kh\u00f4ng h\u1ee3p l\u1ec7"
+    });
   }
 }
 
