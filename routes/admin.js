@@ -941,6 +941,7 @@ router.get("/stats", requireAnyPermission([PERMISSIONS.STATS_VIEW, PERMISSIONS.O
     const [userRows] = await db.query(
       `SELECT
         COUNT(*) AS total_users,
+        COALESCE(SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END), 0) AS active_users,
         COALESCE(SUM(CASE WHEN UPPER(COALESCE(role, 'USER')) = 'USER' THEN 1 ELSE 0 END), 0) AS customers,
         COALESCE(SUM(CASE WHEN UPPER(COALESCE(role, 'USER')) <> 'USER' THEN 1 ELSE 0 END), 0) AS staff
        FROM users`
