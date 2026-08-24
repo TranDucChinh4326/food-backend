@@ -210,6 +210,15 @@ async function ensureSchema() {
   }
 
   try {
+    await db.query("ALTER TABLE users ADD COLUMN pin_hash VARCHAR(255) DEFAULT NULL");
+    console.log("Added users.pin_hash column");
+  } catch (error) {
+    if (error.code !== "ER_DUP_FIELDNAME") {
+      console.error("User PIN schema check failed:", error.message);
+    }
+  }
+
+  try {
     await db.query(`
       CREATE TABLE IF NOT EXISTS admin_audit_logs (
         id INT NOT NULL AUTO_INCREMENT,

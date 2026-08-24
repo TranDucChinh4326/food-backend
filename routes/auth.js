@@ -82,9 +82,18 @@ function publicUser(user) {
     address: user.address || null,
     emailVerified: Boolean(user.email_verified),
     passwordSet: hasPassword,
+    hasPin: Boolean(user.pin_hash),
     permissions,
     requiresAccountSetup: !isAdmin && (!hasPassword || !username)
   };
+}
+
+function validatePin(pin) {
+  const value = String(pin || "").trim();
+  if (!/^\d{4,6}$/.test(value)) {
+    return "Mã PIN phải gồm 4-6 chữ số";
+  }
+  return "";
 }
 
 function getApiBaseUrl(req) {
@@ -953,6 +962,41 @@ router.post("/admin-pin/verify", requireAuth, async (req, res) => {
   }
 });
 
+router.post("/pin/verify", requireAuth, async (req, res) => {
+  try {
+    const pin = String(req.body.pin || "").trim();
+
+    if (!pin) {
+      return res.status(400).json({ message: "Vui lòng nhập mã PIN" });
+    }
+
+    const [users] = await db.query(
+      "SELECT id, pin_hash, is_active FROM users WHERE id = ? LIMIT 1",
+      [req.user.id]
+    );
+
+    if (users.length === 0 || !users[0].is_active) {
+      return res.status(401).json({ message: "Phiên đăng nhập không hợp lệ" });
+    }
+
+    if (!users[0].pin_hash) {
+      return res.status(400).json({ message: "Tài khoản chưa tạo mã PIN" });
+    }
+
+    const isMatch = await bcrypt.compare(pin, users[0].pin_hash);
+
+    if (!isMatch) {
+      return res.status(401).json({ message: "Mã PIN không đúng" });
+    }
+
+    await touchUserLastSeen(req.user.id);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Không thể xác minh mã PIN" });
+  }
+});
+
 router.post("/google", async (req, res) => {
   try {
     const { accessToken } = req.body;
@@ -1245,7 +1289,7 @@ router.get("/me", requireAuth, async (req, res) => {
   try {
     await touchUserLastSeen(req.user.id);
     const [users] = await db.query(
-      "SELECT id, username, fullname, email, avatar, phone, address, role, email_verified AS emailVerified, password_set AS passwordSet, created_at FROM users WHERE id = ?",
+      "SELECT id, username, fullname, email, avatar, phone, address, role, email_verified AS emailVerified, password_set AS passwordSet, pin_hash IS NOT NULL AS hasPin, created_at FROM users WHERE id = ?",
       [req.user.id]
     );
 
@@ -1340,7 +1384,7 @@ router.put("/me", requireAuth, async (req, res) => {
     );
 
     const [users] = await db.query(
-      "SELECT id, username, fullname, email, avatar, phone, address, role, email_verified AS emailVerified, password_set AS passwordSet, created_at FROM users WHERE id = ?",
+      "SELECT id, username, fullname, email, avatar, phone, address, role, email_verified AS emailVerified, password_set AS passwordSet, pin_hash IS NOT NULL AS hasPin, created_at FROM users WHERE id = ?",
       [req.user.id]
     );
 
@@ -1398,7 +1442,7 @@ router.post("/avatar", requireAuth, (req, res) => {
       }
 
       const [users] = await db.query(
-        "SELECT id, username, fullname, email, avatar, phone, address, role, email_verified AS emailVerified, password_set AS passwordSet, created_at FROM users WHERE id = ?",
+        "SELECT id, username, fullname, email, avatar, phone, address, role, email_verified AS emailVerified, password_set AS passwordSet, pin_hash IS NOT NULL AS hasPin, created_at FROM users WHERE id = ?",
         [req.user.id]
       );
 
@@ -1517,6 +1561,60 @@ router.put("/password", requireAuth, async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Lỗi server" });
+  }
+});
+
+router.put("/pin", requireAuth, async (req, res) => {
+  try {
+    const currentPin = String(req.body.currentPin || "").trim();
+    const newPin = String(req.body.newPin || "").trim();
+    const confirmPin = String(req.body.confirmPin || "").trim();
+
+    const pinError = validatePin(newPin);
+    if (pinError) {
+      return res.status(400).json({ message: pinError });
+    }
+
+    if (newPin !== confirmPin) {
+      return res.status(400).json({ message: "Mã PIN nhập lại không khớp" });
+    }
+
+    const [users] = await db.query(
+      "SELECT id, pin_hash FROM users WHERE id = ? LIMIT 1",
+      [req.user.id]
+    );
+
+    if (users.length === 0) {
+      return res.status(404).json({ message: "Không tìm thấy người dùng" });
+    }
+
+    const hasPin = Boolean(users[0].pin_hash);
+    if (hasPin) {
+      if (!currentPin) {
+        return res.status(400).json({ message: "Vui lòng nhập mã PIN hiện tại" });
+      }
+
+      const isMatch = await bcrypt.compare(currentPin, users[0].pin_hash);
+      if (!isMatch) {
+        return res.status(400).json({ message: "Mã PIN hiện tại không đúng" });
+      }
+    }
+
+    const pinHash = await bcrypt.hash(newPin, 10);
+    await db.query("UPDATE users SET pin_hash = ? WHERE id = ?", [pinHash, req.user.id]);
+
+    const [updatedUsers] = await db.query(
+      "SELECT id, username, fullname, email, avatar, phone, address, role, email_verified AS emailVerified, password_set AS passwordSet, pin_hash IS NOT NULL AS hasPin, created_at FROM users WHERE id = ?",
+      [req.user.id]
+    );
+
+    res.json({
+      message: hasPin ? "Đã đổi mã PIN" : "Đã tạo mã PIN",
+      user: updatedUsers[0]
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Không thể cập nhật mã PIN" });
   }
 });
 
