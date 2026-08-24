@@ -915,6 +915,44 @@ router.post("/login", async (req, res) => {
   }
 });
 
+router.post("/admin-pin/verify", requireAuth, async (req, res) => {
+  try {
+    const pin = String(req.body.pin || "").trim();
+
+    if (!pin) {
+      return res.status(400).json({ message: "Vui lòng nhập mã PIN" });
+    }
+
+    const [users] = await db.query(
+      "SELECT id, password, role, is_active FROM users WHERE id = ? LIMIT 1",
+      [req.user.id]
+    );
+
+    if (users.length === 0 || !users[0].is_active) {
+      return res.status(401).json({ message: "Phiên đăng nhập không hợp lệ" });
+    }
+
+    if (String(users[0].role || "").toUpperCase() === "USER") {
+      return res.status(403).json({ message: "Tài khoản không có quyền quản trị" });
+    }
+
+    const configuredPin = String(process.env.ADMIN_PIN || "").trim();
+    const isMatch = configuredPin
+      ? pin === configuredPin
+      : Boolean(users[0].password) && await bcrypt.compare(pin, users[0].password);
+
+    if (!isMatch) {
+      return res.status(401).json({ message: "Mã PIN không đúng" });
+    }
+
+    await touchUserLastSeen(req.user.id);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Không thể xác minh mã PIN" });
+  }
+});
+
 router.post("/google", async (req, res) => {
   try {
     const { accessToken } = req.body;
