@@ -770,6 +770,19 @@ router.post("/", requireAuth, async (req, res) => {
 
     await connection.commit();
 
+    req.app.get("emitOrderEvent")?.("order:created", {
+      order: {
+        id: orderId,
+        userId: req.user.id,
+        status: orderStatus,
+        paymentMethod: normalizedPaymentMethod,
+        paymentStatus,
+        totalPrice,
+        customerName: customerName.trim(),
+        createdAt: new Date().toISOString()
+      }
+    });
+
     res.status(201).json({
       message: normalizedPaymentMethod === "qr" ? "Đã tạo giao dich thanh toan QR" : "Đặt hàng thành công",
       order: {
@@ -939,19 +952,6 @@ router.post("/vouchers/claim", requireAuth, async (req, res) => {
     );
 
     await connection.commit();
-
-    req.app.get("emitOrderEvent")?.("order:created", {
-      order: {
-        id: orderId,
-        userId: req.user.id,
-        status: orderStatus,
-        paymentMethod: normalizedPaymentMethod,
-        paymentStatus,
-        totalPrice,
-        customerName: customerName.trim(),
-        createdAt: new Date().toISOString()
-      }
-    });
 
     res.status(201).json({
       message: "Da nhan voucher",
