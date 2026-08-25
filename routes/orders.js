@@ -27,7 +27,7 @@ function ensureQrBankConfig() {
   const config = getBankConfig();
 
   if (!config.bankCode || !config.accountNo || !config.accountName) {
-    const error = new Error("Chưa cấu hình thong tin ngan hang nhan thanh toan QR");
+    const error = new Error("Chưa cấu hình thông tin ngân hàng nhận thanh toán QR");
     error.status = 500;
     throw error;
   }
@@ -553,15 +553,15 @@ router.post("/", requireAuth, async (req, res) => {
     const normalizedPaymentMethod = String(paymentMethod || "cod").toLowerCase();
 
     if (!customerName || !customerPhone || !customerAddress) {
-      return res.status(400).json({ message: "Vui lòng nhập thong tin giao hàng" });
+      return res.status(400).json({ message: "Vui lòng nhập thông tin giao hàng" });
     }
 
     if (!["cod", "qr", "vnpay", "wallet"].includes(normalizedPaymentMethod)) {
-      return res.status(400).json({ message: "Phuong thuc thanh toan không hợp lệ" });
+      return res.status(400).json({ message: "Phương thức thanh toán không hợp lệ" });
     }
 
     if (normalizedPaymentMethod === "wallet") {
-      return res.status(400).json({ message: "Thanh toan bang số dư tài khoản chưa được kích hoạt. Vui lòng chọn COD hoặc QR." });
+      return res.status(400).json({ message: "Thanh toán bằng số dư tài khoản chưa được kích hoạt. Vui lòng chọn COD hoặc QR." });
     }
 
     const bankConfig = normalizedPaymentMethod === "qr" ? ensureQrBankConfig() : null;
@@ -597,7 +597,7 @@ router.post("/", requireAuth, async (req, res) => {
     );
 
     if (foods.length !== uniqueFoodIds.length) {
-      return res.status(400).json({ message: "Mot so món ăn không cón kha dung" });
+      return res.status(400).json({ message: "Một số món ăn không còn khả dụng" });
     }
 
     const foodMap = new Map(foods.map(food => [Number(food.id), food]));
@@ -784,7 +784,7 @@ router.post("/", requireAuth, async (req, res) => {
     });
 
     res.status(201).json({
-      message: normalizedPaymentMethod === "qr" ? "Đã tạo giao dich thanh toan QR" : "Đặt hàng thành công",
+      message: normalizedPaymentMethod === "qr" ? "Đã tạo giao dịch thanh toán QR" : "Đặt hàng thành công",
       order: {
         id: orderId,
         status: orderStatus,
@@ -846,7 +846,7 @@ router.get("/vouchers/available", requireAuth, async (req, res) => {
     })));
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -877,7 +877,7 @@ router.get("/vouchers/mine", requireAuth, async (req, res) => {
     })));
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -901,7 +901,7 @@ router.post("/vouchers/claim", requireAuth, async (req, res) => {
       conditions.push("code = ?");
       params.push(code);
     } else {
-      return res.status(400).json({ message: "Thieu thong tin voucher" });
+      return res.status(400).json({ message: "Thiếu thông tin voucher" });
     }
 
     await connection.beginTransaction();
@@ -929,7 +929,7 @@ router.post("/vouchers/claim", requireAuth, async (req, res) => {
     if (ownedRows.length > 0) {
       await connection.rollback();
       return res.status(200).json({
-        message: "Voucher da co trong vi",
+        message: "Voucher đã có trong ví",
         discount: mapDiscountRow(discount)
       });
     }
@@ -941,7 +941,7 @@ router.post("/vouchers/claim", requireAuth, async (req, res) => {
       );
       if (Number(claimStats[0]?.claimed_count || 0) >= Number(discount.usage_limit)) {
         await connection.rollback();
-        return res.status(400).json({ message: "Voucher da het so luong phat hanh" });
+        return res.status(400).json({ message: "Voucher đã hết số lượng phát hành" });
       }
     }
 
@@ -954,13 +954,13 @@ router.post("/vouchers/claim", requireAuth, async (req, res) => {
     await connection.commit();
 
     res.status(201).json({
-      message: "Da nhan voucher",
+      message: "Đã nhận voucher",
       discount: mapDiscountRow(discount)
     });
   } catch (error) {
     await connection.rollback();
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   } finally {
     connection.release();
   }
@@ -975,7 +975,7 @@ router.post("/:id/payment/cancel", requireAuth, async (req, res) => {
     const orderId = Number(req.params.id);
 
     if (!isPositiveInteger(orderId)) {
-      return res.status(400).json({ message: "Ma đơn hàng không hợp lệ" });
+      return res.status(400).json({ message: "Mã đơn hàng không hợp lệ" });
     }
 
     await connection.beginTransaction();
@@ -991,19 +991,19 @@ router.post("/:id/payment/cancel", requireAuth, async (req, res) => {
 
     if (orders.length === 0) {
       await connection.rollback();
-      return res.status(404).json({ message: "Không tìm thấy giao dich QR" });
+      return res.status(404).json({ message: "Không tìm thấy giao dịch QR" });
     }
 
     const order = orders[0];
 
     if (order.payment_status === "paid") {
       await connection.rollback();
-      return res.status(400).json({ message: "Đơn hàng da thanh toan, không thể huy" });
+      return res.status(400).json({ message: "Đơn hàng đã thanh toán, không thể hủy" });
     }
 
     if (order.status === "cancelled") {
       await connection.rollback();
-      return res.json({ message: "Giao dich đã được huy truoc do" });
+      return res.json({ message: "Giao dịch đã được hủy trước đó" });
     }
 
     const [items] = await connection.query(
@@ -1039,7 +1039,7 @@ router.post("/:id/payment/cancel", requireAuth, async (req, res) => {
       }
     });
 
-    res.json({ message: "Đã hủy giao dich thanh toan QR" });
+    res.json({ message: "Đã hủy giao dịch thanh toán QR" });
   } catch (error) {
     await connection.rollback();
     console.error(error);
@@ -1072,7 +1072,7 @@ router.post("/discount/preview", requireAuth, async (req, res) => {
       shippingDiscount: discountAmounts.shippingDiscount
     });
   } catch (error) {
-    res.status(error.status || 500).json({ message: error.message || "Loi server" });
+    res.status(error.status || 500).json({ message: error.message || "Lỗi server" });
   }
 });
 
@@ -1109,7 +1109,7 @@ router.get("/:id/payment/status", requireAuth, async (req, res) => {
     });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 

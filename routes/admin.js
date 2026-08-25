@@ -502,7 +502,7 @@ router.get("/me", requireAuth, async (req, res) => {
     });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -715,7 +715,7 @@ router.put("/announcements/:id", requirePermission(PERMISSIONS.ANNOUNCEMENTS_MAN
       return res.status(404).json({ message: "Không tìm thấy thông báo" });
     }
 
-    res.json({ message: "Da cập nhật thông báo" });
+    res.json({ message: "Đã cập nhật thông báo" });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Không thể cập nhật thông báo" });
@@ -854,7 +854,7 @@ router.post("/discounts", requirePermission(PERMISSIONS.DISCOUNTS_MANAGE), async
     res.status(201).json({ message: "Đã tạo mã giảm giá", id: result.insertId });
   } catch (error) {
     if (error.code === "ER_DUP_ENTRY") {
-      return res.status(409).json({ message: "Mã giảm giá da tồn tại" });
+      return res.status(409).json({ message: "Mã giảm giá đã tồn tại" });
     }
 
     console.error(error);
@@ -901,10 +901,10 @@ router.put("/discounts/:id", requirePermission(PERMISSIONS.DISCOUNTS_MANAGE), as
       return res.status(404).json({ message: "Không tìm thấy mã giảm giá" });
     }
 
-    res.json({ message: "Da cập nhật mã giảm giá" });
+    res.json({ message: "Đã cập nhật mã giảm giá" });
   } catch (error) {
     if (error.code === "ER_DUP_ENTRY") {
-      return res.status(409).json({ message: "Mã giảm giá da tồn tại" });
+      return res.status(409).json({ message: "Mã giảm giá đã tồn tại" });
     }
 
     console.error(error);
@@ -960,7 +960,7 @@ router.post("/shipping-methods", requirePermission(PERMISSIONS.SHIPPING_MANAGE),
       [method.name, method.description, method.fee, method.estimatedTime, method.sortOrder, method.isActive ? 1 : 0]
     );
 
-    res.status(201).json({ message: "Da tao phi van chuyen", id: result.insertId });
+    res.status(201).json({ message: "Đã tạo phí vận chuyển", id: result.insertId });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Không thể tạo phí vận chuyển" });
@@ -990,7 +990,7 @@ router.put("/shipping-methods/:id", requirePermission(PERMISSIONS.SHIPPING_MANAG
       return res.status(404).json({ message: "Không tìm thấy hình thức giao hàng" });
     }
 
-    res.json({ message: "Da cap nhat phi van chuyen" });
+    res.json({ message: "Đã cập nhật phí vận chuyển" });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Không thể cập nhật phí vận chuyển" });
@@ -1012,7 +1012,7 @@ router.delete("/shipping-methods/:id", requirePermission(PERMISSIONS.SHIPPING_MA
       return res.status(404).json({ message: "Không tìm thấy hình thức giao hàng" });
     }
 
-    res.json({ message: "Da xoa phi van chuyen" });
+    res.json({ message: "Đã xóa phí vận chuyển" });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Không thể xóa phí vận chuyển" });
@@ -1157,7 +1157,7 @@ router.get("/stats", requireAnyPermission([PERMISSIONS.STATS_VIEW, PERMISSIONS.O
     );
 
     const [categorySales] = await db.query(
-      `SELECT COALESCE(parent_categories.name, categories.name, 'Chua phan loai') AS category_name,
+      `SELECT COALESCE(parent_categories.name, categories.name, 'Chưa phân loại') AS category_name,
         SUM(order_details.quantity) AS quantity,
         SUM(order_details.subtotal) AS revenue
        FROM order_details
@@ -1166,7 +1166,7 @@ router.get("/stats", requireAnyPermission([PERMISSIONS.STATS_VIEW, PERMISSIONS.O
        LEFT JOIN categories ON categories.id = foods.category_id
        LEFT JOIN categories AS parent_categories ON parent_categories.id = categories.parent_id
        ${detailWhere}
-       GROUP BY COALESCE(parent_categories.name, categories.name, 'Chua phan loai')
+       GROUP BY COALESCE(parent_categories.name, categories.name, 'Chưa phân loại')
        ORDER BY quantity DESC, revenue DESC
        LIMIT 6`,
       params
@@ -1174,7 +1174,7 @@ router.get("/stats", requireAnyPermission([PERMISSIONS.STATS_VIEW, PERMISSIONS.O
 
     const [customerStats] = await db.query(
       `SELECT users.id,
-              COALESCE(users.fullname, users.username, users.email, 'Khach hang') AS customer_name,
+              COALESCE(users.fullname, users.username, users.email, 'Khách hàng') AS customer_name,
               users.email,
               COUNT(orders.id) AS total_orders,
               COALESCE(SUM(CASE WHEN orders.status = 'done' THEN 1 ELSE 0 END), 0) AS done_orders,
@@ -1326,11 +1326,11 @@ router.patch("/orders/:id/status", requirePermission(PERMISSIONS.ORDERS_MANAGE),
         updatedAt: new Date().toISOString()
       }
     });
-    res.json({ message: "Cap nhat trang thai thanh cong" });
+    res.json({ message: "Cập nhật trạng thái thành công" });
   } catch (error) {
     await connection.rollback();
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   } finally {
     connection.release();
   }
@@ -1342,11 +1342,11 @@ router.patch("/orders/:id/payment", requirePermission(PERMISSIONS.ORDERS_MANAGE)
     const allowedStatuses = ["unpaid", "pending", "paid", "failed", "cancelled", "expired", "refunded"];
 
     if (!Number.isInteger(orderId) || orderId <= 0) {
-      return res.status(400).json({ message: "Ma đơn hàng không hợp lệ" });
+      return res.status(400).json({ message: "Mã đơn hàng không hợp lệ" });
     }
 
     if (!allowedStatuses.includes(paymentStatus)) {
-      return res.status(400).json({ message: "Trạng thái thanh toan không hợp lệ" });
+      return res.status(400).json({ message: "Trạng thái thanh toán không hợp lệ" });
     }
 
     const nextOrderStatus = paymentStatus === "paid" ? "pending" : undefined;
@@ -1380,7 +1380,7 @@ router.patch("/orders/:id/payment", requirePermission(PERMISSIONS.ORDERS_MANAGE)
       }
     });
 
-    res.json({ message: "Cập nhật thanh toan thành công" });
+    res.json({ message: "Cập nhật thanh toán thành công" });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Lỗi server" });
@@ -1830,7 +1830,7 @@ router.post("/users", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISSION
     if (blocked) return;
 
     if (String(password || "").length < 6) {
-      return res.status(400).json({ message: "Mat khau toi thieu 6 ky tu" });
+      return res.status(400).json({ message: "Mật khẩu tối thiểu 6 ký tự" });
     }
 
     if (normalizedUsername && !/^[a-z0-9._-]{3,40}$/.test(normalizedUsername)) {
@@ -1865,7 +1865,7 @@ router.post("/users", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISSION
     );
     await ensureLocalProvider(result.insertId, normalizedEmail);
 
-    res.status(201).json({ message: "Da tao tai khoan", id: result.insertId });
+    res.status(201).json({ message: "Đã tạo tài khoản", id: result.insertId });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Không thể tạo tài khoản" });
@@ -1888,7 +1888,7 @@ router.post("/staff", requirePermission(PERMISSIONS.STAFF_MANAGE), async (req, r
     }
 
     if (String(password || "").length < 6) {
-      return res.status(400).json({ message: "Mat khau toi thieu 6 ky tu" });
+      return res.status(400).json({ message: "Mật khẩu tối thiểu 6 ký tự" });
     }
 
     if (!/^[a-z0-9._-]{3,40}$/.test(normalizedUsername)) {
@@ -1920,10 +1920,10 @@ router.post("/staff", requirePermission(PERMISSIONS.STAFF_MANAGE), async (req, r
     );
     await ensureLocalProvider(result.insertId, normalizedEmail);
 
-    res.status(201).json({ message: "Da tao tai khoan nhan vien", id: result.insertId });
+    res.status(201).json({ message: "Đã tạo tài khoản nhân viên", id: result.insertId });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -1993,10 +1993,10 @@ router.put("/users/:id", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISS
       ]
     );
 
-    res.json({ message: "Da cap nhat tai khoan" });
+    res.json({ message: "Đã cập nhật tài khoản" });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -2025,10 +2025,10 @@ router.patch("/users/:id/permissions", requirePermission(PERMISSIONS.ROLES_MANAG
       [serializePermissions(permissions), userId]
     );
 
-    res.json({ message: "Da cap nhat phan quyen nhan vien" });
+    res.json({ message: "Đã cập nhật phân quyền nhân viên" });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -2055,7 +2055,7 @@ router.patch("/users/:id/status", requireAnyPermission([PERMISSIONS.USERS_MANAGE
     if (blocked) return;
 
     await db.query("UPDATE users SET is_active = ? WHERE id = ?", [isActive ? 1 : 0, userId]);
-    res.json({ message: isActive ? "Da mo khoa tài khoản" : "Da khoa tài khoản" });
+    res.json({ message: isActive ? "Đã mở khóa tài khoản" : "Đã khóa tài khoản" });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Lỗi server" });
@@ -2112,7 +2112,7 @@ router.delete("/users/:id", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERM
       connection.release();
     }
 
-    res.json({ message: "Da xoa tai khoan" });
+    res.json({ message: "Đã xóa tài khoản" });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Không thể xóa tài khoản" });
@@ -2172,7 +2172,7 @@ router.get("/feedback", requirePermission(PERMISSIONS.FEEDBACK_MANAGE), async (r
     res.json(feedback);
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -2201,7 +2201,7 @@ router.patch("/feedback/:id", requirePermission(PERMISSIONS.FEEDBACK_MANAGE), as
     res.json({ message: "Đã cập nhật trạng thái phản hồi" });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -2232,7 +2232,7 @@ router.post("/feedback/:id/reply", requirePermission(PERMISSIONS.FEEDBACK_MANAGE
     res.json({ message: "Đã gửi phản hồi đến khách hàng" });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -2276,7 +2276,7 @@ router.get("/food-reviews", requirePermission(PERMISSIONS.FEEDBACK_MANAGE), asyn
               food_reviews.created_at,
               foods.name AS food_name,
               foods.image AS food_image,
-              COALESCE(users.fullname, users.username, users.email, 'Khach hang') AS customer_name,
+              COALESCE(users.fullname, users.username, users.email, 'Khách hàng') AS customer_name,
               users.email AS customer_email,
               users.avatar,
               COALESCE(replier.fullname, replier.username, replier.email) AS replied_by_name
@@ -2292,7 +2292,7 @@ router.get("/food-reviews", requirePermission(PERMISSIONS.FEEDBACK_MANAGE), asyn
     res.json(reviews);
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -2323,7 +2323,7 @@ router.post("/food-reviews/:id/reply", requirePermission(PERMISSIONS.FEEDBACK_MA
     res.json({ message: "Đã lưu phản hồi bình luận" });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -2345,10 +2345,10 @@ router.patch("/food-reviews/:id/visibility", requirePermission(PERMISSIONS.FEEDB
       return res.status(404).json({ message: "Không tìm thấy đánh giá" });
     }
 
-    res.json({ message: isVisible ? "Da hien thi danh gia" : "Da an danh gia" });
+    res.json({ message: isVisible ? "Đã hiển thị đánh giá" : "Đã ẩn đánh giá" });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -2366,7 +2366,7 @@ router.delete("/food-reviews/:id", requirePermission(PERMISSIONS.FEEDBACK_MANAGE
       return res.status(404).json({ message: "Không tìm thấy đánh giá" });
     }
 
-    res.json({ message: "Da xoa binh luan" });
+    res.json({ message: "Đã xóa bình luận" });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Không thể xóa bình luận" });
@@ -2383,7 +2383,7 @@ router.put("/users/:id/password", requirePermission(PERMISSIONS.PASSWORD_RESET),
     }
 
     if (String(newPassword || "").length < 6) {
-      return res.status(400).json({ message: "Mat khau moi toi thieu 6 ky tu" });
+      return res.status(400).json({ message: "Mật khẩu mới tối thiểu 6 ký tự" });
     }
 
     const [targetUsers] = await db.query("SELECT id, email, role FROM users WHERE id = ?", [userId]);
@@ -2402,7 +2402,7 @@ router.put("/users/:id/password", requirePermission(PERMISSIONS.PASSWORD_RESET),
     ]);
     await ensureLocalProvider(userId, targetUsers[0].email);
 
-    res.json({ message: "Da dat lai mật khẩu mới cho tài khoản" });
+    res.json({ message: "Đã đặt lại mật khẩu mới cho tài khoản" });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Lỗi server" });

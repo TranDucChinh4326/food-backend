@@ -55,7 +55,7 @@ router.get("/", requireAuth, async (req, res) => {
     res.json({ feedback });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 
@@ -88,7 +88,7 @@ router.post("/", requireAuth, async (req, res) => {
     });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Loi server" });
+    res.status(500).json({ message: "Lỗi server" });
   }
 });
 

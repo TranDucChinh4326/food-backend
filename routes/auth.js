@@ -387,7 +387,7 @@ async function createAuthProvider(userId, { provider, providerId, email }) {
   const normalizedEmail = normalizeEmail(email);
 
   if (!["local", "google", "facebook"].includes(normalizedProvider)) {
-    const error = new Error("Phuong thuc đăng nhập không hợp lệ");
+    const error = new Error("Phương thức đăng nhập không hợp lệ");
     error.status = 400;
     throw error;
   }
@@ -424,7 +424,7 @@ async function linkSocialAccount(userId, { email, provider, providerId }) {
   );
 
   if (linkedAccounts.length > 0 && Number(linkedAccounts[0].user_id) !== Number(userId)) {
-    const error = new Error("Tài khoản Google/Facebook này da liên kết voi tài khoản khac");
+    const error = new Error("Tài khoản Google/Facebook này đã liên kết với tài khoản khác");
     error.status = 400;
     throw error;
   }
@@ -483,7 +483,7 @@ async function getSocialLoginUser({ email, provider, providerId, allowEmailFallb
   const [users] = await db.query("SELECT * FROM users WHERE email = ?", [normalizedEmail]);
 
   if (users.length > 0) {
-    const error = new Error("Email này da co tài khoản. Vui lòng đăng nhập bang username/password truoc, sau do vao trang tài khoản de liên kết Google hoặc Facebook.");
+    const error = new Error("Email này đã có tài khoản. Vui lòng đăng nhập bằng username/password trước, sau đó vào trang tài khoản để liên kết Google hoặc Facebook.");
     error.status = 409;
     throw error;
   }
@@ -503,7 +503,7 @@ async function unlinkSocialAccount(userId, provider) {
   const providerCount = await getLoginProviderCount(userId);
 
   if (providerCount <= 1) {
-    const error = new Error("Không thể huy liên kết vi tài khoản phai con it nhat mot phuong thuc đăng nhập khac");
+    const error = new Error("Không thể hủy liên kết vì tài khoản phải còn ít nhất một phương thức đăng nhập khác");
     error.status = 400;
     throw error;
   }
@@ -514,7 +514,7 @@ async function unlinkSocialAccount(userId, provider) {
   );
 
   if (result.affectedRows === 0) {
-    const error = new Error("Tài khoản chưa liên kết phuong thuc này");
+    const error = new Error("Tài khoản chưa liên kết phương thức này");
     error.status = 404;
     throw error;
   }
@@ -1014,7 +1014,7 @@ router.post("/google", async (req, res) => {
 
     if (!user) {
       return res.status(202).json({
-        message: "Da xác thực Google. Vui lòng tạo username va mật khẩu de hoàn tất tài khoản.",
+        message: "Đã xác thực Google. Vui lòng tạo username và mật khẩu để hoàn tất tài khoản.",
         requiresAccountSetup: true,
         provider: profile.provider,
         providerEmail: profile.email,
@@ -1043,7 +1043,7 @@ router.post("/facebook", async (req, res) => {
 
     if (!user) {
       return res.status(202).json({
-        message: "Da xác thực Facebook. Vui lòng tạo username va mật khẩu de hoàn tất tài khoản.",
+        message: "Đã xác thực Facebook. Vui lòng tạo username và mật khẩu để hoàn tất tài khoản.",
         requiresAccountSetup: true,
         provider: profile.provider,
         providerEmail: profile.email,
@@ -1242,7 +1242,7 @@ router.put("/addresses/:id", requireAuth, async (req, res) => {
       await db.query("UPDATE users SET address = ? WHERE id = ?", [address, req.user.id]);
     }
 
-    res.json({ message: "Da cập nhật địa chỉ giao hàng" });
+    res.json({ message: "Đã cập nhật địa chỉ giao hàng" });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Lỗi server" });
@@ -1412,7 +1412,7 @@ router.put("/me", requireAuth, async (req, res) => {
 
     res.json({
       message: emailChanged
-       ? "Da cập nhật email. Vui lòng xác thực email mới."
+       ? "Đã cập nhật email. Vui lòng xác thực email mới."
        : "Cập nhật tài khoản thành công",
       user: users[0],
       verificationUrl: emailChanged && shouldExposeVerificationUrl(emailSent) ? verificationUrl : undefined

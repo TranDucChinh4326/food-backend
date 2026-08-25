@@ -315,7 +315,7 @@ router.put("/admin/:id", requirePermission(PERMISSIONS.ADS_MANAGE), validateAdve
       return res.status(404).json({ message: "Không tìm thấy quảng cáo." });
     }
 
-    return res.json({ message: "Da cập nhật quảng cáo." });
+    return res.json({ message: "Đã cập nhật quảng cáo." });
   } catch (error) {
     console.error("Update advertisement error:", error);
     return res.status(500).json({ message: "Không thể cập nhật quảng cáo." });
