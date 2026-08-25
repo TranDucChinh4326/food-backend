@@ -1,6 +1,81 @@
 const express = require("express");
 const router = express.Router();
 const db = require("../db");
+const { requireAuth } = require("../middleware/auth");
+
+function normalizeFavoriteFoodId(value) {
+    const foodId = Number(value);
+    return Number.isInteger(foodId) && foodId > 0 ? foodId : null;
+}
+
+router.get("/favorites", requireAuth, async (req, res) => {
+    try {
+        const [rows] = await db.query(
+            `SELECT user_favorite_foods.food_id AS foodId
+             FROM user_favorite_foods
+             JOIN foods ON foods.id = user_favorite_foods.food_id
+             WHERE user_favorite_foods.user_id = ?
+               AND foods.is_active = 1
+             ORDER BY user_favorite_foods.created_at DESC`,
+            [req.user.id]
+        );
+
+        res.json({
+            favorites: rows.map(row => Number(row.foodId))
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Không thể tải món yêu thích" });
+    }
+});
+
+router.post("/favorites/:foodId", requireAuth, async (req, res) => {
+    try {
+        const foodId = normalizeFavoriteFoodId(req.params.foodId);
+        if (!foodId) {
+            return res.status(400).json({ message: "Mã món ăn không hợp lệ" });
+        }
+
+        const [foods] = await db.query(
+            "SELECT id FROM foods WHERE id = ? AND is_active = 1 LIMIT 1",
+            [foodId]
+        );
+
+        if (foods.length === 0) {
+            return res.status(404).json({ message: "Không tìm thấy món ăn" });
+        }
+
+        await db.query(
+            `INSERT IGNORE INTO user_favorite_foods (user_id, food_id)
+             VALUES (?, ?)`,
+            [req.user.id, foodId]
+        );
+
+        res.status(201).json({ message: "Đã thêm vào món yêu thích", foodId });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Không thể lưu món yêu thích" });
+    }
+});
+
+router.delete("/favorites/:foodId", requireAuth, async (req, res) => {
+    try {
+        const foodId = normalizeFavoriteFoodId(req.params.foodId);
+        if (!foodId) {
+            return res.status(400).json({ message: "Mã món ăn không hợp lệ" });
+        }
+
+        await db.query(
+            "DELETE FROM user_favorite_foods WHERE user_id = ? AND food_id = ?",
+            [req.user.id, foodId]
+        );
+
+        res.json({ message: "Đã xóa khỏi món yêu thích", foodId });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Không thể xóa món yêu thích" });
+    }
+});
 
 router.get("/", async (req, res) => {
     // GET /api/foods

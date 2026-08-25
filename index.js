@@ -731,6 +731,25 @@ async function ensureSchema() {
   } catch (error) {
     console.error("Food reviews schema check failed:", error.message);
   }
+
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS user_favorite_foods (
+        id INT NOT NULL AUTO_INCREMENT,
+        user_id INT NOT NULL,
+        food_id INT NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY user_favorite_food_once (user_id, food_id),
+        KEY user_favorite_food_user (user_id, created_at),
+        KEY user_favorite_food_food (food_id),
+        CONSTRAINT user_favorite_foods_user_fk FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+        CONSTRAINT user_favorite_foods_food_fk FOREIGN KEY (food_id) REFERENCES foods (id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+  } catch (error) {
+    console.error("Favorite foods schema check failed:", error.message);
+  }
 }
 
 ensureSchema().finally(() => {
