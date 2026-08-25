@@ -1376,6 +1376,11 @@ router.put("/me", requireAuth, async (req, res) => {
       updateValues.push(normalizedAddress || null);
     }
 
+    if (typeof req.body.avatar === "string") {
+      updateFields.push("avatar = ?");
+      updateValues.push(req.body.avatar.trim() || null);
+    }
+
     updateFields.push(
       "email_verified = CASE WHEN ? THEN 0 ELSE email_verified END",
       "email_verified_at = CASE WHEN ? THEN NULL ELSE email_verified_at END"
@@ -1418,7 +1423,61 @@ router.put("/me", requireAuth, async (req, res) => {
   }
 });
 
+async function processAvatarUpdate(req, res) {
+  try {
+    let avatarUrl = "";
+    if (req.file) {
+      avatarUrl = await saveAvatarFile(req, req.file);
+    } else {
+      const preset = req.body?.presetAvatar || req.body?.avatarUrl || req.body?.avatar;
+      if (preset && typeof preset === "string") {
+        avatarUrl = preset.trim();
+      } else {
+        return res.status(400).json({ message: "Vui lòng chọn ảnh đại diện" });
+      }
+    }
+
+    try {
+      await db.query("UPDATE users SET avatar = ? WHERE id = ?", [avatarUrl, req.user.id]);
+    } catch (error) {
+      throw createUploadError(
+        "AVATAR_DB_UPDATE_FAILED",
+        error.message || "Avatar database update failed",
+        error
+      );
+    }
+
+    const [users] = await db.query(
+      "SELECT id, username, fullname, email, avatar, phone, address, role, email_verified AS emailVerified, password_set AS passwordSet, pin_hash IS NOT NULL AS hasPin, created_at FROM users WHERE id = ?",
+      [req.user.id]
+    );
+
+    return res.json({
+      message: "Cập nhật ảnh đại diện thành công",
+      avatar: avatarUrl,
+      user: users[0]
+    });
+  } catch (uploadError) {
+    console.error("Avatar upload failed:", {
+      code: uploadError.code || "AVATAR_UPLOAD_FAILED",
+      message: uploadError.message,
+      cause: uploadError.cause?.message
+    });
+    return res.status(500).json({
+      message: "Không thể lưu ảnh đại diện",
+      code: uploadError.code || "AVATAR_UPLOAD_FAILED",
+      detail: uploadError.message
+    });
+  }
+}
+
 router.post("/avatar", requireAuth, (req, res) => {
+  const isJson = req.is("json") || (req.headers["content-type"] && req.headers["content-type"].includes("application/json"));
+
+  if (isJson) {
+    return processAvatarUpdate(req, res);
+  }
+
   avatarUpload.single("avatar")(req, res, async error => {
     if (error) {
       const isSizeError = error.code === "LIMIT_FILE_SIZE";
@@ -1429,44 +1488,7 @@ router.post("/avatar", requireAuth, (req, res) => {
       });
     }
 
-    try {
-      if (!req.file) {
-        return res.status(400).json({ message: "Vui lòng chọn ảnh đại diện" });
-      }
-
-      const avatarUrl = await saveAvatarFile(req, req.file);
-      try {
-        await db.query("UPDATE users SET avatar = ? WHERE id = ?", [avatarUrl, req.user.id]);
-      } catch (error) {
-        throw createUploadError(
-          "AVATAR_DB_UPDATE_FAILED",
-          error.message || "Avatar database update failed",
-          error
-        );
-      }
-
-      const [users] = await db.query(
-        "SELECT id, username, fullname, email, avatar, phone, address, role, email_verified AS emailVerified, password_set AS passwordSet, pin_hash IS NOT NULL AS hasPin, created_at FROM users WHERE id = ?",
-        [req.user.id]
-      );
-
-      return res.json({
-        message: "Cập nhật ảnh đại diện thành công",
-        avatar: avatarUrl,
-        user: users[0]
-      });
-    } catch (uploadError) {
-      console.error("Avatar upload failed:", {
-        code: uploadError.code || "AVATAR_UPLOAD_FAILED",
-        message: uploadError.message,
-        cause: uploadError.cause?.message
-      });
-      return res.status(500).json({
-        message: "Không thể lưu ảnh đại diện",
-        code: uploadError.code || "AVATAR_UPLOAD_FAILED",
-        detail: uploadError.message
-      });
-    }
+    return processAvatarUpdate(req, res);
   });
 });
 
