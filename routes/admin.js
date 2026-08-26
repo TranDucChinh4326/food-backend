@@ -985,7 +985,9 @@ router.delete("/discounts/:id", requirePermission(PERMISSIONS.DISCOUNTS_MANAGE),
 router.get("/flash-sales", requirePermission(PERMISSIONS.DISCOUNTS_MANAGE), async (req, res) => {
   try {
     const [sales] = await db.query(
-      `SELECT flash_sales.id, flash_sales.title, flash_sales.starts_at, flash_sales.ends_at,
+      `SELECT flash_sales.id, flash_sales.title,
+              DATE_FORMAT(flash_sales.starts_at, '%Y-%m-%d %H:%i:%s') AS starts_at,
+              DATE_FORMAT(flash_sales.ends_at, '%Y-%m-%d %H:%i:%s') AS ends_at,
               flash_sales.is_active, flash_sales.created_at, flash_sales.updated_at,
               COUNT(flash_sale_items.id) AS item_count,
               COALESCE(SUM(flash_sale_items.sold_count), 0) AS sold_count,
@@ -1017,7 +1019,10 @@ router.get("/flash-sales/:id", requirePermission(PERMISSIONS.DISCOUNTS_MANAGE), 
     }
 
     const [sales] = await db.query(
-      `SELECT id, title, starts_at, ends_at, is_active, created_at, updated_at
+      `SELECT id, title,
+              DATE_FORMAT(starts_at, '%Y-%m-%d %H:%i:%s') AS starts_at,
+              DATE_FORMAT(ends_at, '%Y-%m-%d %H:%i:%s') AS ends_at,
+              is_active, created_at, updated_at
        FROM flash_sales
        WHERE id = ?`,
       [saleId]

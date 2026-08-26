@@ -50,8 +50,8 @@ router.get("/active", async (req, res) => {
     const [rows] = await db.query(
       `SELECT flash_sales.id AS flash_sale_id,
               flash_sales.title AS flash_sale_title,
-              flash_sales.starts_at,
-              flash_sales.ends_at,
+              DATE_FORMAT(flash_sales.starts_at, '%Y-%m-%d %H:%i:%s') AS starts_at,
+              DATE_FORMAT(flash_sales.ends_at, '%Y-%m-%d %H:%i:%s') AS ends_at,
               flash_sale_items.id AS item_id,
               flash_sale_items.food_id,
               flash_sale_items.sale_price,
