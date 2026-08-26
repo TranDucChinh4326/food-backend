@@ -365,9 +365,9 @@ function validateDiscountPayload(body) {
   const maxDiscount = parseNullablePositiveNumber(body.maxDiscount ?? body.max_discount);
   const usageLimit = parseNullablePositiveNumber(body.usageLimit ?? body.usage_limit);
 
-  if (!code) return { error: "Vui long nhap ma giam gia" };
-  if (!/^[A-Z0-9_-]{3,40}$/.test(code)) return { error: "Ma giam gia chi gom chu, so, dau gach ngang hoac gach duoi" };
-  if (!name) return { error: "Vui long nhap ten chuong trinh" };
+  if (!code) return { error: "Vui lòng nhập mã giảm giá" };
+  if (!/^[A-Z0-9_-]{3,40}$/.test(code)) return { error: "Mã giảm giá chỉ gồm chữ, số, dấu gạch ngang hoặc gạch dưới" };
+  if (!name) return { error: "Vui lòng nhập tên chương trình" };
   if (!["percent", "fixed", "free_shipping"].includes(discountType)) return { error: "Kiểu giảm giá không hợp lệ" };
   if (!["order", "shipping"].includes(applyTo)) return { error: "Phạm vi áp dụng mã giảm giá không hợp lệ" };
   if ((discountType !== "free_shipping" && discountValue <= 0) || (discountType === "percent" && discountValue > 100)) {
@@ -444,10 +444,10 @@ function validateShippingMethodPayload(body) {
   const sortOrder = parsePositiveNumber(body.sortOrder ?? body.sort_order, 0);
   const isActive = body.isActive === undefined ? true : Boolean(body.isActive);
 
-  if (!name) return { error: "Vui long nhap ten hinh thuc giao hang" };
-  if (name.length > 120) return { error: "Ten hinh thuc giao hang toi da 120 ky tu" };
-  if (description.length > 255) return { error: "Mo ta toi da 255 ky tu" };
-  if (estimatedTime.length > 80) return { error: "Thoi gian du kien toi da 80 ky tu" };
+  if (!name) return { error: "Vui lòng nhập tên hình thức giao hàng" };
+  if (name.length > 120) return { error: "Tên hình thức giao hàng tối đa 120 ký tự" };
+  if (description.length > 255) return { error: "Mô tả tối đa 255 ký tự" };
+  if (estimatedTime.length > 80) return { error: "Thời gian dự kiến tối đa 80 ký tự" };
 
   return {
     value: {
@@ -586,8 +586,8 @@ router.get("/permissions", requirePermission(PERMISSIONS.ROLES_MANAGE), (req, re
       { value: PERMISSIONS.FOODS_MANAGE, label: "Quản lý món ăn" },
       { value: PERMISSIONS.USERS_MANAGE, label: "Quản lý khách hàng" },
       { value: PERMISSIONS.STAFF_MANAGE, label: "Quản lý nhân viên" },
-      { value: PERMISSIONS.ROLES_MANAGE, label: "Cap phat quyền" },
-      { value: PERMISSIONS.PASSWORD_RESET, label: "Dat lai mật khẩu theo yêu cầu" },
+      { value: PERMISSIONS.ROLES_MANAGE, label: "Cấp phát quyền" },
+      { value: PERMISSIONS.PASSWORD_RESET, label: "Đặt lại mật khẩu theo yêu cầu" },
       { value: PERMISSIONS.ANNOUNCEMENTS_MANAGE, label: "Quản lý thông báo" },
       { value: PERMISSIONS.ADS_MANAGE, label: "Quản lý quảng cáo" },
       { value: PERMISSIONS.DISCOUNTS_MANAGE, label: "Quản lý mã giảm giá" },
@@ -2104,7 +2104,7 @@ router.post("/users", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISSION
     const normalizedEmail = normalizedRole === "USER" ? normalizeEmail(email) : buildStaffEmail(normalizedUsername);
 
     if (!fullname || !password || (normalizedRole === "USER" ? !normalizedEmail : !normalizedUsername)) {
-      return res.status(400).json({ message: "Vui long nhap day du thong tin tai khoan" });
+      return res.status(400).json({ message: "Vui lòng nhập đầy đủ thông tin tài khoản" });
     }
 
     if (!MANAGED_ROLES.includes(normalizedRole)) {
@@ -2228,7 +2228,7 @@ router.put("/users/:id", requireAnyPermission([PERMISSIONS.USERS_MANAGE, PERMISS
     }
 
     if (!fullname || (normalizedRole === "USER" ? !normalizedEmail : !normalizedUsername)) {
-      return res.status(400).json({ message: "Vui long nhap day du thong tin tai khoan" });
+      return res.status(400).json({ message: "Vui lòng nhập đầy đủ thông tin tài khoản" });
     }
 
     if (!MANAGED_ROLES.includes(normalizedRole)) {
@@ -2302,7 +2302,7 @@ router.patch("/users/:id/permissions", requirePermission(PERMISSIONS.ROLES_MANAG
 
     const normalizedRole = String(targetUsers[0].role || "USER").toUpperCase();
     if (normalizedRole === ADMIN_ROLE || normalizedRole === "USER") {
-      return res.status(403).json({ message: "Chi cap quyen cho tai khoan nhan vien noi bo" });
+      return res.status(403).json({ message: "Chỉ cấp quyền cho tài khoản nhân viên nội bộ" });
     }
 
     await db.query(
