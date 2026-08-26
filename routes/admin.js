@@ -993,8 +993,8 @@ router.get("/flash-sales", requirePermission(PERMISSIONS.DISCOUNTS_MANAGE), asyn
               COALESCE(SUM(flash_sale_items.sold_count), 0) AS sold_count,
               CASE
                 WHEN flash_sales.is_active = 0 THEN 'hidden'
-                WHEN flash_sales.starts_at IS NOT NULL AND flash_sales.starts_at > NOW() THEN 'scheduled'
-                WHEN flash_sales.ends_at IS NOT NULL AND flash_sales.ends_at <= NOW() THEN 'expired'
+                WHEN flash_sales.starts_at IS NOT NULL AND flash_sales.starts_at > DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 HOUR) THEN 'scheduled'
+                WHEN flash_sales.ends_at IS NOT NULL AND flash_sales.ends_at <= DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 HOUR) THEN 'expired'
                 ELSE 'active'
               END AS status
        FROM flash_sales

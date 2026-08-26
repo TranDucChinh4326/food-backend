@@ -71,8 +71,8 @@ router.get("/active", async (req, res) => {
         AND foods.is_active = 1
        LEFT JOIN categories ON categories.id = foods.category_id
        WHERE flash_sales.is_active = 1
-         AND (flash_sales.starts_at IS NULL OR flash_sales.starts_at <= NOW())
-         AND (flash_sales.ends_at IS NULL OR flash_sales.ends_at > NOW())
+         AND (flash_sales.starts_at IS NULL OR flash_sales.starts_at <= DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 HOUR))
+         AND (flash_sales.ends_at IS NULL OR flash_sales.ends_at > DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 HOUR))
          AND (flash_sale_items.stock_limit IS NULL OR flash_sale_items.sold_count < flash_sale_items.stock_limit)
        ORDER BY flash_sales.ends_at ASC, flash_sales.id DESC, flash_sale_items.sort_order ASC, flash_sale_items.id ASC`
     );

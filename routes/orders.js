@@ -410,8 +410,8 @@ async function getActiveFlashSaleItems(connection, foodIds, userId) {
        AND foods.is_active = 1
        AND flash_sale_items.sale_price > 0
        AND flash_sale_items.sale_price < foods.price
-       AND (flash_sales.starts_at IS NULL OR flash_sales.starts_at <= NOW())
-       AND (flash_sales.ends_at IS NULL OR flash_sales.ends_at > NOW())
+       AND (flash_sales.starts_at IS NULL OR flash_sales.starts_at <= DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 HOUR))
+       AND (flash_sales.ends_at IS NULL OR flash_sales.ends_at > DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 HOUR))
        AND (flash_sale_items.stock_limit IS NULL OR flash_sale_items.sold_count < flash_sale_items.stock_limit)
      ORDER BY flash_sale_items.sale_price ASC, flash_sales.ends_at ASC, flash_sale_items.id ASC
      FOR UPDATE`,
