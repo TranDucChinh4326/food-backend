@@ -388,6 +388,88 @@ async function restoreUsedVoucher(connection, order) {
   }
 }
 
+async function getActiveFlashSaleItems(connection, foodIds, userId) {
+  if (!Array.isArray(foodIds) || foodIds.length === 0) return new Map();
+
+  const placeholders = foodIds.map(() => "?").join(",");
+  const [rows] = await connection.query(
+    `SELECT flash_sale_items.id AS flash_sale_item_id,
+            flash_sale_items.flash_sale_id,
+            flash_sale_items.food_id,
+            flash_sale_items.sale_price,
+            flash_sale_items.stock_limit,
+            flash_sale_items.sold_count,
+            flash_sale_items.per_user_limit,
+            foods.price AS original_price
+     FROM flash_sale_items
+     JOIN flash_sales ON flash_sales.id = flash_sale_items.flash_sale_id
+     JOIN foods ON foods.id = flash_sale_items.food_id
+     WHERE flash_sale_items.food_id IN (${placeholders})
+       AND flash_sale_items.is_active = 1
+       AND flash_sales.is_active = 1
+       AND foods.is_active = 1
+       AND flash_sale_items.sale_price > 0
+       AND flash_sale_items.sale_price < foods.price
+       AND (flash_sales.starts_at IS NULL OR flash_sales.starts_at <= NOW())
+       AND (flash_sales.ends_at IS NULL OR flash_sales.ends_at > NOW())
+       AND (flash_sale_items.stock_limit IS NULL OR flash_sale_items.sold_count < flash_sale_items.stock_limit)
+     ORDER BY flash_sale_items.sale_price ASC, flash_sales.ends_at ASC, flash_sale_items.id ASC
+     FOR UPDATE`,
+    foodIds
+  );
+
+  const saleByFoodId = new Map();
+  rows.forEach(row => {
+    const foodId = Number(row.food_id);
+    if (!saleByFoodId.has(foodId)) saleByFoodId.set(foodId, row);
+  });
+
+  const limitedRows = rows.filter(row => row.per_user_limit !== null && row.per_user_limit !== undefined);
+  if (limitedRows.length === 0 || !userId) return saleByFoodId;
+
+  const itemIds = limitedRows.map(row => Number(row.flash_sale_item_id));
+  const itemPlaceholders = itemIds.map(() => "?").join(",");
+  const [usageRows] = await connection.query(
+    `SELECT order_details.flash_sale_item_id, COALESCE(SUM(order_details.quantity), 0) AS bought_count
+     FROM order_details
+     JOIN orders ON orders.id = order_details.order_id
+     WHERE orders.user_id = ?
+       AND orders.status <> 'cancelled'
+       AND orders.payment_status NOT IN ('failed', 'cancelled')
+       AND order_details.flash_sale_item_id IN (${itemPlaceholders})
+     GROUP BY order_details.flash_sale_item_id`,
+    [userId, ...itemIds]
+  );
+  const boughtByItemId = new Map(usageRows.map(row => [Number(row.flash_sale_item_id), Number(row.bought_count || 0)]));
+
+  limitedRows.forEach(row => {
+    const itemId = Number(row.flash_sale_item_id);
+    const bought = boughtByItemId.get(itemId) || 0;
+    row.user_bought_count = bought;
+    if (bought >= Number(row.per_user_limit || 0)) {
+      saleByFoodId.delete(Number(row.food_id));
+    }
+  });
+
+  return saleByFoodId;
+}
+
+async function restoreFlashSaleUsage(connection, orderId) {
+  const [items] = await connection.query(
+    `SELECT flash_sale_item_id, quantity
+     FROM order_details
+     WHERE order_id = ? AND flash_sale_item_id IS NOT NULL`,
+    [orderId]
+  );
+
+  for (const item of items) {
+    await connection.query(
+      "UPDATE flash_sale_items SET sold_count = GREATEST(sold_count - ?, 0) WHERE id = ?",
+      [Number(item.quantity || 0), item.flash_sale_item_id]
+    );
+  }
+}
+
 function formatVnpayDate(date) {
   const pad = value => String(value).padStart(2, "0");
 
@@ -591,13 +673,17 @@ router.post("/", requireAuth, async (req, res) => {
 
     const uniqueFoodIds = Object.keys(demandByFoodId).map(Number);
     const placeholders = uniqueFoodIds.map(() => "?").join(",");
+    await connection.beginTransaction();
+
     const [foods] = await connection.query(
       `SELECT id, name, price, stock_quantity FROM foods WHERE is_active = 1 AND id IN (${placeholders})`,
       uniqueFoodIds
     );
 
     if (foods.length !== uniqueFoodIds.length) {
-      return res.status(400).json({ message: "Một số món ăn không còn khả dụng" });
+      const error = new Error("Một số món ăn không còn khả dụng");
+      error.status = 400;
+      throw error;
     }
 
     const foodMap = new Map(foods.map(food => [Number(food.id), food]));
@@ -607,21 +693,56 @@ router.post("/", requireAuth, async (req, res) => {
     });
 
     if (outOfStockFood) {
-      return res.status(400).json({ message: "Một số món ăn không đủ số lượng tồn kho" });
+      const error = new Error("Một số món ăn không đủ số lượng tồn kho");
+      error.status = 400;
+      throw error;
     }
+
+    const activeFlashSaleItems = await getActiveFlashSaleItems(connection, uniqueFoodIds, req.user.id);
+    const flashSaleDemand = {};
 
     const orderItems = normalizedItems.map(item => {
       const food = foodMap.get(item.foodId);
-      const price = Number(food.price);
+      const flashSale = activeFlashSaleItems.get(item.foodId);
+      const originalPrice = Number(food.price);
+      const price = flashSale ? Number(flashSale.sale_price) : originalPrice;
+
+      if (flashSale) {
+        flashSaleDemand[flashSale.flash_sale_item_id] = (flashSaleDemand[flashSale.flash_sale_item_id] || 0) + item.quantity;
+      }
 
       return {
         foodId: item.foodId,
         foodName: food.name,
+        originalPrice,
         price,
         quantity: item.quantity,
-        subtotal: price * item.quantity
+        subtotal: price * item.quantity,
+        flashSaleId: flashSale ? Number(flashSale.flash_sale_id) : null,
+        flashSaleItemId: flashSale ? Number(flashSale.flash_sale_item_id) : null
       };
     });
+
+    for (const [itemId, quantity] of Object.entries(flashSaleDemand)) {
+      const sale = [...activeFlashSaleItems.values()].find(row => Number(row.flash_sale_item_id) === Number(itemId));
+      const stockLimit = sale?.stock_limit === null || sale?.stock_limit === undefined ? null : Number(sale.stock_limit);
+      const soldCount = Number(sale?.sold_count || 0);
+      const perUserLimit = sale?.per_user_limit === null || sale?.per_user_limit === undefined ? null : Number(sale.per_user_limit);
+      const userBoughtCount = Number(sale?.user_bought_count || 0);
+
+      if (stockLimit !== null && soldCount + Number(quantity) > stockLimit) {
+        const error = new Error("Một số món flash sale đã hết lượt");
+        error.status = 400;
+        throw error;
+      }
+
+      if (perUserLimit !== null && userBoughtCount + Number(quantity) > perUserLimit) {
+        const error = new Error(`Mỗi khách chỉ được mua tối đa ${perUserLimit} phần flash sale cho món này`);
+        error.status = 400;
+        throw error;
+      }
+    }
+
     const itemsSubtotal = orderItems.reduce((sum, item) => sum + item.subtotal, 0);
     const shippingMethod = await resolveShippingMethod(shippingMethodId, customerAddress, connection, customerLocation);
     const shippingFee = shippingMethod.fee;
@@ -633,8 +754,6 @@ router.post("/", requireAuth, async (req, res) => {
     const needsOnlinePayment = ["qr", "vnpay"].includes(normalizedPaymentMethod);
     const paymentStatus = needsOnlinePayment ? "pending" : "unpaid";
     const orderStatus = needsOnlinePayment ? "pending_payment" : "pending";
-
-    await connection.beginTransaction();
 
     const [orderResult] = await connection.query(
       `INSERT INTO orders
@@ -679,17 +798,36 @@ router.post("/", requireAuth, async (req, res) => {
       orderId,
       item.foodId,
       item.foodName,
+      item.originalPrice,
       item.price,
       item.quantity,
-      item.subtotal
+      item.subtotal,
+      item.flashSaleId,
+      item.flashSaleItemId
     ]);
 
     await connection.query(
       `INSERT INTO order_details
-        (order_id, food_id, food_name, price, quantity, subtotal)
+        (order_id, food_id, food_name, original_price, price, quantity, subtotal, flash_sale_id, flash_sale_item_id)
        VALUES ?`,
       [detailValues]
     );
+
+    for (const [itemId, quantity] of Object.entries(flashSaleDemand)) {
+      const [saleUpdate] = await connection.query(
+        `UPDATE flash_sale_items
+         SET sold_count = sold_count + ?
+         WHERE id = ?
+           AND (stock_limit IS NULL OR sold_count + ? <= stock_limit)`,
+        [Number(quantity), Number(itemId), Number(quantity)]
+      );
+
+      if (saleUpdate.affectedRows === 0) {
+        const error = new Error("Một số món flash sale đã hết lượt");
+        error.status = 400;
+        throw error;
+      }
+    }
 
     for (const [foodId, quantity] of Object.entries(demandByFoodId)) {
       const [stockResult] = await connection.query(
@@ -1027,6 +1165,7 @@ router.post("/:id/payment/cancel", requireAuth, async (req, res) => {
       [orderId]
     );
     await restoreUsedVoucher(connection, order);
+    await restoreFlashSaleUsage(connection, orderId);
 
     await connection.commit();
     req.app.get("emitOrderEvent")?.("order:updated", {

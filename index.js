@@ -69,6 +69,7 @@ app.use("/api/auth", require("./routes/auth"));
 app.use("/api/orders", require("./routes/orders"));
 app.use("/api/announcements", require("./routes/announcements"));
 app.use("/api/advertisements", require("./routes/advertisements"));
+app.use("/api/flash-sales", require("./routes/flash-sales"));
 app.use("/api/feedback", require("./routes/feedback"));
 app.use("/api/food-reviews", require("./routes/food-reviews"));
 app.use("/api/payments", require("./routes/payments"));
@@ -506,6 +507,61 @@ async function ensureSchema() {
     await db.query("ALTER TABLE orders ADD COLUMN user_discount_id INT DEFAULT NULL");
   } catch (error) {
     if (error.code !== "ER_DUP_FIELDNAME") console.error("Order user discount schema check failed:", error.message);
+  }
+
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS flash_sales (
+        id INT NOT NULL AUTO_INCREMENT,
+        title VARCHAR(150) NOT NULL,
+        starts_at TIMESTAMP NULL DEFAULT NULL,
+        ends_at TIMESTAMP NULL DEFAULT NULL,
+        is_active TINYINT NOT NULL DEFAULT 1,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        KEY flash_sale_active_window (is_active, starts_at, ends_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS flash_sale_items (
+        id INT NOT NULL AUTO_INCREMENT,
+        flash_sale_id INT NOT NULL,
+        food_id INT NOT NULL,
+        sale_price INT NOT NULL,
+        stock_limit INT DEFAULT NULL,
+        sold_count INT NOT NULL DEFAULT 0,
+        per_user_limit INT DEFAULT NULL,
+        sort_order INT NOT NULL DEFAULT 0,
+        is_active TINYINT NOT NULL DEFAULT 1,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY flash_sale_food_once (flash_sale_id, food_id),
+        KEY flash_sale_item_food (food_id),
+        CONSTRAINT flash_sale_items_sale_fk FOREIGN KEY (flash_sale_id) REFERENCES flash_sales (id) ON DELETE CASCADE,
+        CONSTRAINT flash_sale_items_food_fk FOREIGN KEY (food_id) REFERENCES foods (id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+  } catch (error) {
+    console.error("Flash sale schema check failed:", error.message);
+  }
+
+  const orderDetailFlashSaleColumnChecks = [
+    ["original_price", "ALTER TABLE order_details ADD COLUMN original_price INT DEFAULT NULL"],
+    ["flash_sale_id", "ALTER TABLE order_details ADD COLUMN flash_sale_id INT DEFAULT NULL"],
+    ["flash_sale_item_id", "ALTER TABLE order_details ADD COLUMN flash_sale_item_id INT DEFAULT NULL"]
+  ];
+
+  for (const [column, statement] of orderDetailFlashSaleColumnChecks) {
+    try {
+      await db.query(statement);
+    } catch (error) {
+      if (error.code !== "ER_DUP_FIELDNAME") {
+        console.error(`Order detail flash sale ${column} schema check failed:`, error.message);
+      }
+    }
   }
 
   try {

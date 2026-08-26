@@ -380,6 +380,39 @@ function validateDiscountPayload(body) {
   };
 }
 
+function validateFlashSalePayload(body) {
+  const title = String(body.title || "").trim();
+  const startsAt = toMysqlDateTime(body.startsAt || body.starts_at);
+  const endsAt = toMysqlDateTime(body.endsAt || body.ends_at);
+  const isActive = body.isActive === undefined && body.is_active === undefined
+    ? true
+    : Boolean(Number(body.isActive ?? body.is_active));
+
+  if (!title) return { error: "Vui lòng nhập tên flash sale" };
+  if (title.length > 150) return { error: "Tên flash sale tối đa 150 ký tự" };
+  if (startsAt && endsAt && new Date(startsAt) >= new Date(endsAt)) {
+    return { error: "Thời gian kết thúc phải sau thời gian bắt đầu" };
+  }
+
+  return { value: { title, startsAt, endsAt, isActive } };
+}
+
+function validateFlashSaleItemPayload(body) {
+  const foodId = Number(body.foodId || body.food_id);
+  const salePrice = parsePositiveNumber(body.salePrice ?? body.sale_price, 0);
+  const stockLimit = parseNullablePositiveNumber(body.stockLimit ?? body.stock_limit);
+  const perUserLimit = parseNullablePositiveNumber(body.perUserLimit ?? body.per_user_limit);
+  const sortOrder = parsePositiveNumber(body.sortOrder ?? body.sort_order, 0);
+  const isActive = body.isActive === undefined && body.is_active === undefined
+    ? true
+    : Boolean(Number(body.isActive ?? body.is_active));
+
+  if (!Number.isInteger(foodId) || foodId <= 0) return { error: "Món ăn không hợp lệ" };
+  if (salePrice <= 0) return { error: "Giá flash sale phải lớn hơn 0" };
+
+  return { value: { foodId, salePrice, stockLimit, perUserLimit, sortOrder, isActive } };
+}
+
 function validateShippingMethodPayload(body) {
   const name = String(body.name || "").trim();
   const description = String(body.description || "").trim();
@@ -419,6 +452,22 @@ async function restoreOrderDiscountUsage(connection, order) {
     await connection.query(
       "UPDATE discounts SET used_count = GREATEST(used_count - 1, 0) WHERE code = ?",
       [order.discount_code]
+    );
+  }
+}
+
+async function restoreOrderFlashSaleUsage(connection, orderId) {
+  const [items] = await connection.query(
+    `SELECT flash_sale_item_id, quantity
+     FROM order_details
+     WHERE order_id = ? AND flash_sale_item_id IS NOT NULL`,
+    [orderId]
+  );
+
+  for (const item of items) {
+    await connection.query(
+      "UPDATE flash_sale_items SET sold_count = GREATEST(sold_count - ?, 0) WHERE id = ?",
+      [Number(item.quantity || 0), item.flash_sale_item_id]
     );
   }
 }
@@ -933,6 +982,189 @@ router.delete("/discounts/:id", requirePermission(PERMISSIONS.DISCOUNTS_MANAGE),
   }
 });
 
+router.get("/flash-sales", requirePermission(PERMISSIONS.DISCOUNTS_MANAGE), async (req, res) => {
+  try {
+    const [sales] = await db.query(
+      `SELECT flash_sales.id, flash_sales.title, flash_sales.starts_at, flash_sales.ends_at,
+              flash_sales.is_active, flash_sales.created_at, flash_sales.updated_at,
+              COUNT(flash_sale_items.id) AS item_count,
+              COALESCE(SUM(flash_sale_items.sold_count), 0) AS sold_count,
+              CASE
+                WHEN flash_sales.is_active = 0 THEN 'hidden'
+                WHEN flash_sales.starts_at IS NOT NULL AND flash_sales.starts_at > NOW() THEN 'scheduled'
+                WHEN flash_sales.ends_at IS NOT NULL AND flash_sales.ends_at <= NOW() THEN 'expired'
+                ELSE 'active'
+              END AS status
+       FROM flash_sales
+       LEFT JOIN flash_sale_items ON flash_sale_items.flash_sale_id = flash_sales.id
+       GROUP BY flash_sales.id
+       ORDER BY flash_sales.created_at DESC, flash_sales.id DESC
+       LIMIT 300`
+    );
+
+    res.json(sales);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Không thể tải flash sale" });
+  }
+});
+
+router.get("/flash-sales/:id", requirePermission(PERMISSIONS.DISCOUNTS_MANAGE), async (req, res) => {
+  try {
+    const saleId = Number(req.params.id);
+    if (!Number.isInteger(saleId) || saleId <= 0) {
+      return res.status(400).json({ message: "Flash sale không hợp lệ" });
+    }
+
+    const [sales] = await db.query(
+      `SELECT id, title, starts_at, ends_at, is_active, created_at, updated_at
+       FROM flash_sales
+       WHERE id = ?`,
+      [saleId]
+    );
+
+    if (sales.length === 0) return res.status(404).json({ message: "Không tìm thấy flash sale" });
+
+    const [items] = await db.query(
+      `SELECT flash_sale_items.id, flash_sale_items.food_id, flash_sale_items.sale_price,
+              flash_sale_items.stock_limit, flash_sale_items.sold_count, flash_sale_items.per_user_limit,
+              flash_sale_items.sort_order, flash_sale_items.is_active,
+              foods.name AS food_name, foods.price AS original_price, foods.image
+       FROM flash_sale_items
+       JOIN foods ON foods.id = flash_sale_items.food_id
+       WHERE flash_sale_items.flash_sale_id = ?
+       ORDER BY flash_sale_items.sort_order ASC, flash_sale_items.id ASC`,
+      [saleId]
+    );
+
+    res.json({ ...sales[0], items });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Không thể tải flash sale" });
+  }
+});
+
+router.post("/flash-sales", requirePermission(PERMISSIONS.DISCOUNTS_MANAGE), async (req, res) => {
+  try {
+    const parsed = validateFlashSalePayload(req.body);
+    if (parsed.error) return res.status(400).json({ message: parsed.error });
+
+    const sale = parsed.value;
+    const [result] = await db.query(
+      `INSERT INTO flash_sales (title, starts_at, ends_at, is_active)
+       VALUES (?, ?, ?, ?)`,
+      [sale.title, sale.startsAt, sale.endsAt, sale.isActive ? 1 : 0]
+    );
+
+    res.status(201).json({ message: "Đã tạo flash sale", id: result.insertId });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Không thể tạo flash sale" });
+  }
+});
+
+router.put("/flash-sales/:id", requirePermission(PERMISSIONS.DISCOUNTS_MANAGE), async (req, res) => {
+  try {
+    const saleId = Number(req.params.id);
+    if (!Number.isInteger(saleId) || saleId <= 0) {
+      return res.status(400).json({ message: "Flash sale không hợp lệ" });
+    }
+
+    const parsed = validateFlashSalePayload(req.body);
+    if (parsed.error) return res.status(400).json({ message: parsed.error });
+
+    const sale = parsed.value;
+    const [result] = await db.query(
+      `UPDATE flash_sales
+       SET title = ?, starts_at = ?, ends_at = ?, is_active = ?
+       WHERE id = ?`,
+      [sale.title, sale.startsAt, sale.endsAt, sale.isActive ? 1 : 0, saleId]
+    );
+
+    if (result.affectedRows === 0) return res.status(404).json({ message: "Không tìm thấy flash sale" });
+
+    res.json({ message: "Đã cập nhật flash sale" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Không thể cập nhật flash sale" });
+  }
+});
+
+router.delete("/flash-sales/:id", requirePermission(PERMISSIONS.DISCOUNTS_MANAGE), async (req, res) => {
+  try {
+    const saleId = Number(req.params.id);
+    if (!Number.isInteger(saleId) || saleId <= 0) {
+      return res.status(400).json({ message: "Flash sale không hợp lệ" });
+    }
+
+    const [result] = await db.query("DELETE FROM flash_sales WHERE id = ?", [saleId]);
+    if (result.affectedRows === 0) return res.status(404).json({ message: "Không tìm thấy flash sale" });
+
+    res.json({ message: "Đã xóa flash sale" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Không thể xóa flash sale" });
+  }
+});
+
+router.post("/flash-sales/:id/items", requirePermission(PERMISSIONS.DISCOUNTS_MANAGE), async (req, res) => {
+  try {
+    const saleId = Number(req.params.id);
+    if (!Number.isInteger(saleId) || saleId <= 0) {
+      return res.status(400).json({ message: "Flash sale không hợp lệ" });
+    }
+
+    const parsed = validateFlashSaleItemPayload(req.body);
+    if (parsed.error) return res.status(400).json({ message: parsed.error });
+
+    const item = parsed.value;
+    const [foods] = await db.query("SELECT id, price FROM foods WHERE id = ? AND is_active = 1 LIMIT 1", [item.foodId]);
+    if (foods.length === 0) return res.status(404).json({ message: "Không tìm thấy món ăn" });
+    if (item.salePrice >= Number(foods[0].price || 0)) {
+      return res.status(400).json({ message: "Giá flash sale phải nhỏ hơn giá gốc" });
+    }
+
+    const [result] = await db.query(
+      `INSERT INTO flash_sale_items
+       (flash_sale_id, food_id, sale_price, stock_limit, per_user_limit, sort_order, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         sale_price = VALUES(sale_price),
+         stock_limit = VALUES(stock_limit),
+         per_user_limit = VALUES(per_user_limit),
+         sort_order = VALUES(sort_order),
+         is_active = VALUES(is_active)`,
+      [saleId, item.foodId, item.salePrice, item.stockLimit, item.perUserLimit, item.sortOrder, item.isActive ? 1 : 0]
+    );
+
+    res.status(201).json({ message: "Đã lưu món flash sale", id: result.insertId || null });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Không thể lưu món flash sale" });
+  }
+});
+
+router.delete("/flash-sales/:saleId/items/:itemId", requirePermission(PERMISSIONS.DISCOUNTS_MANAGE), async (req, res) => {
+  try {
+    const saleId = Number(req.params.saleId);
+    const itemId = Number(req.params.itemId);
+    if (!Number.isInteger(saleId) || saleId <= 0 || !Number.isInteger(itemId) || itemId <= 0) {
+      return res.status(400).json({ message: "Món flash sale không hợp lệ" });
+    }
+
+    const [result] = await db.query(
+      "DELETE FROM flash_sale_items WHERE id = ? AND flash_sale_id = ?",
+      [itemId, saleId]
+    );
+    if (result.affectedRows === 0) return res.status(404).json({ message: "Không tìm thấy món flash sale" });
+
+    res.json({ message: "Đã xóa món flash sale" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Không thể xóa món flash sale" });
+  }
+});
+
 router.get("/shipping-methods", requirePermission(PERMISSIONS.SHIPPING_MANAGE), async (req, res) => {
   try {
     const [methods] = await db.query(
@@ -1314,6 +1546,7 @@ router.patch("/orders/:id/status", requirePermission(PERMISSIONS.ORDERS_MANAGE),
 
     if (status === "cancelled" && order.status !== "cancelled") {
       await restoreOrderDiscountUsage(connection, order);
+      await restoreOrderFlashSaleUsage(connection, orderId);
     }
 
     await connection.commit();

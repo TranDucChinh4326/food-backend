@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node index.js",
     "dev": "node index.js",
-    "test": "node --check index.js && node --check db.js && node --check routes/auth.js && node --check routes/foods.js && node --check routes/orders.js && node --check routes/chat.js && node --check routes/admin.js && node --check middleware/auth.js"
+    "test": "node --check index.js && node --check db.js && node --check routes/auth.js && node --check routes/foods.js && node --check routes/orders.js && node --check routes/flash-sales.js && node --check routes/chat.js && node --check routes/admin.js && node --check middleware/auth.js"
   },
   "keywords": [],
   "author": "",
