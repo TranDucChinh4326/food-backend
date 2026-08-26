@@ -29,6 +29,55 @@ router.get("/favorites", requireAuth, async (req, res) => {
     }
 });
 
+router.get("/favorites/detail", requireAuth, async (req, res) => {
+    try {
+        const [rows] = await db.query(
+            `SELECT foods.id,
+                    foods.name,
+                    foods.price,
+                    foods.stock_quantity AS stockQuantity,
+                    foods.description AS \`desc\`,
+                    foods.image,
+                    categories.name AS categoryName,
+                    categories.slug AS category,
+                    parent_categories.name AS parentCategoryName,
+                    parent_categories.slug AS parentCategory,
+                    COALESCE(sold_stats.sold_count, 0) AS soldCount,
+                    COALESCE(review_stats.rating, 0) AS rating,
+                    COALESCE(review_stats.review_count, 0) AS reviewCount,
+                    user_favorite_foods.created_at AS favoritedAt
+             FROM user_favorite_foods
+             JOIN foods ON foods.id = user_favorite_foods.food_id
+             LEFT JOIN categories ON categories.id = foods.category_id
+             LEFT JOIN categories AS parent_categories ON parent_categories.id = categories.parent_id
+             LEFT JOIN (
+                 SELECT order_details.food_id, COALESCE(SUM(order_details.quantity), 0) AS sold_count
+                 FROM order_details
+                 JOIN orders ON orders.id = order_details.order_id
+                 WHERE orders.status = 'done'
+                 GROUP BY order_details.food_id
+             ) sold_stats ON sold_stats.food_id = foods.id
+             LEFT JOIN (
+                 SELECT food_id, ROUND(AVG(rating), 1) AS rating, COUNT(*) AS review_count
+                 FROM food_reviews
+                 WHERE is_visible = 1
+                 GROUP BY food_id
+             ) review_stats ON review_stats.food_id = foods.id
+             WHERE user_favorite_foods.user_id = ?
+               AND foods.is_active = 1
+               AND (categories.id IS NULL OR categories.is_active = 1)
+               AND (parent_categories.id IS NULL OR parent_categories.is_active = 1)
+             ORDER BY user_favorite_foods.created_at DESC`,
+            [req.user.id]
+        );
+
+        res.json(rows);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Không thể tải chi tiết món yêu thích" });
+    }
+});
+
 router.post("/favorites/:foodId", requireAuth, async (req, res) => {
     try {
         const foodId = normalizeFavoriteFoodId(req.params.foodId);
