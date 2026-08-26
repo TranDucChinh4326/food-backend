@@ -514,8 +514,13 @@ async function ensureSchema() {
       CREATE TABLE IF NOT EXISTS flash_sales (
         id INT NOT NULL AUTO_INCREMENT,
         title VARCHAR(150) NOT NULL,
+        schedule_type VARCHAR(20) NOT NULL DEFAULT 'once',
         starts_at TIMESTAMP NULL DEFAULT NULL,
         ends_at TIMESTAMP NULL DEFAULT NULL,
+        start_date DATE DEFAULT NULL,
+        end_date DATE DEFAULT NULL,
+        start_time TIME DEFAULT NULL,
+        end_time TIME DEFAULT NULL,
         is_active TINYINT NOT NULL DEFAULT 1,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
@@ -546,6 +551,22 @@ async function ensureSchema() {
     `);
   } catch (error) {
     console.error("Flash sale schema check failed:", error.message);
+  }
+
+  const flashSaleScheduleColumnChecks = [
+    ["schedule_type", "ALTER TABLE flash_sales ADD COLUMN schedule_type VARCHAR(20) NOT NULL DEFAULT 'once' AFTER title"],
+    ["start_date", "ALTER TABLE flash_sales ADD COLUMN start_date DATE DEFAULT NULL AFTER ends_at"],
+    ["end_date", "ALTER TABLE flash_sales ADD COLUMN end_date DATE DEFAULT NULL AFTER start_date"],
+    ["start_time", "ALTER TABLE flash_sales ADD COLUMN start_time TIME DEFAULT NULL AFTER end_date"],
+    ["end_time", "ALTER TABLE flash_sales ADD COLUMN end_time TIME DEFAULT NULL AFTER start_time"]
+  ];
+
+  for (const [column, statement] of flashSaleScheduleColumnChecks) {
+    try {
+      await db.query(statement);
+    } catch (error) {
+      if (error.code !== "ER_DUP_FIELDNAME") console.error(`Flash sale ${column} schema check failed:`, error.message);
+    }
   }
 
   const orderDetailFlashSaleColumnChecks = [

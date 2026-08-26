@@ -50,8 +50,17 @@ router.get("/active", async (req, res) => {
     const [rows] = await db.query(
       `SELECT flash_sales.id AS flash_sale_id,
               flash_sales.title AS flash_sale_title,
-              DATE_FORMAT(flash_sales.starts_at, '%Y-%m-%d %H:%i:%s') AS starts_at,
-              DATE_FORMAT(flash_sales.ends_at, '%Y-%m-%d %H:%i:%s') AS ends_at,
+              CASE
+                WHEN flash_sales.schedule_type = 'daily' THEN DATE_FORMAT(CONCAT(DATE(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 HOUR)), ' ', flash_sales.start_time), '%Y-%m-%d %H:%i:%s')
+                ELSE DATE_FORMAT(flash_sales.starts_at, '%Y-%m-%d %H:%i:%s')
+              END AS starts_at,
+              CASE
+                WHEN flash_sales.schedule_type = 'daily' AND flash_sales.start_time > flash_sales.end_time AND TIME(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 HOUR)) >= flash_sales.start_time
+                  THEN DATE_FORMAT(CONCAT(DATE_ADD(DATE(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 HOUR)), INTERVAL 1 DAY), ' ', flash_sales.end_time), '%Y-%m-%d %H:%i:%s')
+                WHEN flash_sales.schedule_type = 'daily'
+                  THEN DATE_FORMAT(CONCAT(DATE(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 HOUR)), ' ', flash_sales.end_time), '%Y-%m-%d %H:%i:%s')
+                ELSE DATE_FORMAT(flash_sales.ends_at, '%Y-%m-%d %H:%i:%s')
+              END AS ends_at,
               flash_sale_items.id AS item_id,
               flash_sale_items.food_id,
               flash_sale_items.sale_price,
@@ -71,8 +80,26 @@ router.get("/active", async (req, res) => {
         AND foods.is_active = 1
        LEFT JOIN categories ON categories.id = foods.category_id
        WHERE flash_sales.is_active = 1
-         AND (flash_sales.starts_at IS NULL OR flash_sales.starts_at <= DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 HOUR))
-         AND (flash_sales.ends_at IS NULL OR flash_sales.ends_at > DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 HOUR))
+         AND (
+           (
+             COALESCE(flash_sales.schedule_type, 'once') = 'once'
+             AND (flash_sales.starts_at IS NULL OR flash_sales.starts_at <= DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 HOUR))
+             AND (flash_sales.ends_at IS NULL OR flash_sales.ends_at > DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 HOUR))
+           )
+           OR
+           (
+             flash_sales.schedule_type = 'daily'
+             AND (flash_sales.start_date IS NULL OR flash_sales.start_date <= DATE(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 HOUR)))
+             AND (flash_sales.end_date IS NULL OR flash_sales.end_date >= DATE(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 HOUR)))
+             AND flash_sales.start_time IS NOT NULL
+             AND flash_sales.end_time IS NOT NULL
+             AND (
+               (flash_sales.start_time <= flash_sales.end_time AND TIME(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 HOUR)) >= flash_sales.start_time AND TIME(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 HOUR)) < flash_sales.end_time)
+               OR
+               (flash_sales.start_time > flash_sales.end_time AND (TIME(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 HOUR)) >= flash_sales.start_time OR TIME(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 HOUR)) < flash_sales.end_time))
+             )
+           )
+         )
          AND (flash_sale_items.stock_limit IS NULL OR flash_sale_items.sold_count < flash_sale_items.stock_limit)
        ORDER BY flash_sales.ends_at ASC, flash_sales.id DESC, flash_sale_items.sort_order ASC, flash_sale_items.id ASC`
     );

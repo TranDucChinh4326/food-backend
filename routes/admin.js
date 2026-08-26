@@ -151,6 +151,17 @@ function toMysqlDateTime(value) {
   return date.toISOString().slice(0, 19).replace("T", " ");
 }
 
+function normalizeMysqlDate(value) {
+  const text = String(value || "").trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
+}
+
+function normalizeMysqlTime(value) {
+  const text = String(value || "").trim();
+  if (!/^\d{2}:\d{2}(:\d{2})?$/.test(text)) return null;
+  return text.length === 5 ? `${text}:00` : text;
+}
+
 function resolveAnnouncementExpiry(publishedAt, validityDays, expiresAt) {
   if (expiresAt) {
     return toMysqlDateTime(expiresAt);
@@ -382,19 +393,31 @@ function validateDiscountPayload(body) {
 
 function validateFlashSalePayload(body) {
   const title = String(body.title || "").trim();
-  const startsAt = toMysqlDateTime(body.startsAt || body.starts_at);
-  const endsAt = toMysqlDateTime(body.endsAt || body.ends_at);
+  const scheduleType = String(body.scheduleType || body.schedule_type || "once").trim().toLowerCase();
+  const startsAt = scheduleType === "daily" ? null : toMysqlDateTime(body.startsAt || body.starts_at);
+  const endsAt = scheduleType === "daily" ? null : toMysqlDateTime(body.endsAt || body.ends_at);
+  const startDate = scheduleType === "daily" ? normalizeMysqlDate(body.startDate || body.start_date) : null;
+  const endDate = scheduleType === "daily" ? normalizeMysqlDate(body.endDate || body.end_date) : null;
+  const startTime = scheduleType === "daily" ? normalizeMysqlTime(body.startTime || body.start_time) : null;
+  const endTime = scheduleType === "daily" ? normalizeMysqlTime(body.endTime || body.end_time) : null;
   const isActive = body.isActive === undefined && body.is_active === undefined
     ? true
     : Boolean(Number(body.isActive ?? body.is_active));
 
   if (!title) return { error: "Vui lòng nhập tên flash sale" };
   if (title.length > 150) return { error: "Tên flash sale tối đa 150 ký tự" };
+  if (!["once", "daily"].includes(scheduleType)) return { error: "Kiểu khung giờ flash sale không hợp lệ" };
+  if (scheduleType === "daily" && (!startTime || !endTime)) {
+    return { error: "Vui lòng chọn giờ bắt đầu và giờ kết thúc hằng ngày" };
+  }
+  if (scheduleType === "daily" && startDate && endDate && startDate > endDate) {
+    return { error: "Ngày kết thúc phải sau ngày bắt đầu" };
+  }
   if (startsAt && endsAt && new Date(startsAt) >= new Date(endsAt)) {
     return { error: "Thời gian kết thúc phải sau thời gian bắt đầu" };
   }
 
-  return { value: { title, startsAt, endsAt, isActive } };
+  return { value: { title, scheduleType, startsAt, endsAt, startDate, endDate, startTime, endTime, isActive } };
 }
 
 function validateFlashSaleItemPayload(body) {
@@ -985,14 +1008,33 @@ router.delete("/discounts/:id", requirePermission(PERMISSIONS.DISCOUNTS_MANAGE),
 router.get("/flash-sales", requirePermission(PERMISSIONS.DISCOUNTS_MANAGE), async (req, res) => {
   try {
     const [sales] = await db.query(
-      `SELECT flash_sales.id, flash_sales.title,
+      `SELECT flash_sales.id, flash_sales.title, flash_sales.schedule_type,
               DATE_FORMAT(flash_sales.starts_at, '%Y-%m-%d %H:%i:%s') AS starts_at,
               DATE_FORMAT(flash_sales.ends_at, '%Y-%m-%d %H:%i:%s') AS ends_at,
+              DATE_FORMAT(flash_sales.start_date, '%Y-%m-%d') AS start_date,
+              DATE_FORMAT(flash_sales.end_date, '%Y-%m-%d') AS end_date,
+              TIME_FORMAT(flash_sales.start_time, '%H:%i:%s') AS start_time,
+              TIME_FORMAT(flash_sales.end_time, '%H:%i:%s') AS end_time,
               flash_sales.is_active, flash_sales.created_at, flash_sales.updated_at,
               COUNT(flash_sale_items.id) AS item_count,
               COALESCE(SUM(flash_sale_items.sold_count), 0) AS sold_count,
               CASE
                 WHEN flash_sales.is_active = 0 THEN 'hidden'
+                WHEN flash_sales.schedule_type = 'daily'
+                  AND flash_sales.start_date IS NOT NULL
+                  AND flash_sales.start_date > DATE(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 HOUR)) THEN 'scheduled'
+                WHEN flash_sales.schedule_type = 'daily'
+                  AND flash_sales.end_date IS NOT NULL
+                  AND flash_sales.end_date < DATE(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 HOUR)) THEN 'expired'
+                WHEN flash_sales.schedule_type = 'daily'
+                  AND flash_sales.start_time IS NOT NULL
+                  AND flash_sales.end_time IS NOT NULL
+                  AND (
+                    (flash_sales.start_time <= flash_sales.end_time AND TIME(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 HOUR)) >= flash_sales.start_time AND TIME(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 HOUR)) < flash_sales.end_time)
+                    OR
+                    (flash_sales.start_time > flash_sales.end_time AND (TIME(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 HOUR)) >= flash_sales.start_time OR TIME(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 HOUR)) < flash_sales.end_time))
+                  ) THEN 'active'
+                WHEN flash_sales.schedule_type = 'daily' THEN 'scheduled'
                 WHEN flash_sales.starts_at IS NOT NULL AND flash_sales.starts_at > DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 HOUR) THEN 'scheduled'
                 WHEN flash_sales.ends_at IS NOT NULL AND flash_sales.ends_at <= DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 HOUR) THEN 'expired'
                 ELSE 'active'
@@ -1019,9 +1061,13 @@ router.get("/flash-sales/:id", requirePermission(PERMISSIONS.DISCOUNTS_MANAGE), 
     }
 
     const [sales] = await db.query(
-      `SELECT id, title,
+      `SELECT id, title, schedule_type,
               DATE_FORMAT(starts_at, '%Y-%m-%d %H:%i:%s') AS starts_at,
               DATE_FORMAT(ends_at, '%Y-%m-%d %H:%i:%s') AS ends_at,
+              DATE_FORMAT(start_date, '%Y-%m-%d') AS start_date,
+              DATE_FORMAT(end_date, '%Y-%m-%d') AS end_date,
+              TIME_FORMAT(start_time, '%H:%i:%s') AS start_time,
+              TIME_FORMAT(end_time, '%H:%i:%s') AS end_time,
               is_active, created_at, updated_at
        FROM flash_sales
        WHERE id = ?`,
@@ -1056,9 +1102,10 @@ router.post("/flash-sales", requirePermission(PERMISSIONS.DISCOUNTS_MANAGE), asy
 
     const sale = parsed.value;
     const [result] = await db.query(
-      `INSERT INTO flash_sales (title, starts_at, ends_at, is_active)
-       VALUES (?, ?, ?, ?)`,
-      [sale.title, sale.startsAt, sale.endsAt, sale.isActive ? 1 : 0]
+      `INSERT INTO flash_sales
+       (title, schedule_type, starts_at, ends_at, start_date, end_date, start_time, end_time, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [sale.title, sale.scheduleType, sale.startsAt, sale.endsAt, sale.startDate, sale.endDate, sale.startTime, sale.endTime, sale.isActive ? 1 : 0]
     );
 
     res.status(201).json({ message: "Đã tạo flash sale", id: result.insertId });
@@ -1081,9 +1128,9 @@ router.put("/flash-sales/:id", requirePermission(PERMISSIONS.DISCOUNTS_MANAGE), 
     const sale = parsed.value;
     const [result] = await db.query(
       `UPDATE flash_sales
-       SET title = ?, starts_at = ?, ends_at = ?, is_active = ?
+       SET title = ?, schedule_type = ?, starts_at = ?, ends_at = ?, start_date = ?, end_date = ?, start_time = ?, end_time = ?, is_active = ?
        WHERE id = ?`,
-      [sale.title, sale.startsAt, sale.endsAt, sale.isActive ? 1 : 0, saleId]
+      [sale.title, sale.scheduleType, sale.startsAt, sale.endsAt, sale.startDate, sale.endDate, sale.startTime, sale.endTime, sale.isActive ? 1 : 0, saleId]
     );
 
     if (result.affectedRows === 0) return res.status(404).json({ message: "Không tìm thấy flash sale" });
