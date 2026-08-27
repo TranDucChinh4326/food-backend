@@ -20,6 +20,7 @@ const router = express.Router();
 const MANAGED_ROLES = ["USER", "STAFF_SALES", "STAFF_CONTENT", "STAFF_MANAGER"];
 const ALL_PERMISSIONS = Object.values(PERMISSIONS);
 const FOOD_UPLOAD_DIR = path.join(__dirname, "..", "uploads", "foods");
+const STOCK_IMPORT_UPLOAD_DIR = path.join(__dirname, "..", "uploads", "stock-imports");
 const hasCloudinaryConfig = Boolean(
   process.env.CLOUDINARY_CLOUD_NAME
     && process.env.CLOUDINARY_API_KEY
@@ -293,6 +294,26 @@ router.use((req, res, next) => {
   next();
 });
 
+const stockImportUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 1024 * 1024
+  },
+  fileFilter(req, file, callback) {
+    const originalName = String(file.originalname || "").toLowerCase();
+    const isCsv = file.mimetype === "text/csv"
+      || file.mimetype === "application/vnd.ms-excel"
+      || originalName.endsWith(".csv");
+
+    if (!isCsv) {
+      callback(new Error("Vui long chon file CSV"));
+      return;
+    }
+
+    callback(null, true);
+  }
+});
+
 function slugifyCategory(value) {
   return String(value || "")
     .normalize("NFD")
@@ -343,6 +364,85 @@ function parsePositiveNumber(value, fallback = 0) {
   const number = Number(value);
   if (!Number.isFinite(number) || number < 0) return fallback;
   return Math.round(number);
+}
+
+function normalizeFoodLookupName(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/Ä‘/g, "d")
+    .replace(/đ/g, "d")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function parseCsvLine(line) {
+  const values = [];
+  let current = "";
+  let insideQuote = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    const next = line[index + 1];
+
+    if (char === '"' && insideQuote && next === '"') {
+      current += '"';
+      index += 1;
+      continue;
+    }
+
+    if (char === '"') {
+      insideQuote = !insideQuote;
+      continue;
+    }
+
+    if (char === "," && !insideQuote) {
+      values.push(current.trim());
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  values.push(current.trim());
+  return values;
+}
+
+function parseStockImportCsv(buffer) {
+  const text = buffer.toString("utf8").replace(/^\uFEFF/, "");
+  const lines = text
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean);
+
+  if (lines.length < 2) {
+    return [];
+  }
+
+  const headers = parseCsvLine(lines[0]).map(header => normalizeFoodLookupName(header).replace(/\s+/g, "_"));
+  const nameIndex = headers.findIndex(header => ["ten_mon", "ten_hang", "mon", "name", "food_name"].includes(header));
+  const quantityIndex = headers.findIndex(header => ["so_luong_nhap", "so_luong", "quantity", "quantity_added"].includes(header));
+
+  if (nameIndex === -1 || quantityIndex === -1) {
+    throw new Error("File CSV can co cot ten_mon va so_luong_nhap");
+  }
+
+  return lines.slice(1).map((line, index) => {
+    const values = parseCsvLine(line);
+    return {
+      rowNumber: index + 2,
+      inputName: values[nameIndex] || "",
+      quantity: Number(values[quantityIndex] || 0)
+    };
+  });
+}
+
+function csvEscape(value) {
+  const text = String(value ?? "");
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
 function parseNullablePositiveNumber(value) {
@@ -1850,6 +1950,196 @@ router.delete("/categories/:id", requirePermission(PERMISSIONS.FOODS_MANAGE), as
     }
     res.status(500).json({ message: "Lỗi server" });
   }
+});
+
+router.get("/foods/stock-import-template", requirePermission(PERMISSIONS.FOODS_MANAGE), (req, res) => {
+  const rows = [
+    ["ten_mon", "so_luong_nhap"],
+    ["Coca", "100"],
+    ["Nuoc suoi", "100"]
+  ];
+  const csv = rows.map(row => row.map(csvEscape).join(",")).join("\r\n");
+
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", "attachment; filename=\"mau-nhap-so-luong-mon.csv\"");
+  res.send(`\uFEFF${csv}`);
+});
+
+router.get("/foods/stock-imports", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req, res) => {
+  try {
+    const limit = Math.min(Math.max(Number(req.query.limit || 10), 1), 50);
+    const [imports] = await db.query(
+      `SELECT stock_imports.*,
+              users.fullname AS importer_name,
+              users.email AS importer_email
+       FROM stock_imports
+       LEFT JOIN users ON users.id = stock_imports.imported_by
+       ORDER BY stock_imports.created_at DESC, stock_imports.id DESC
+       LIMIT ?`,
+      [limit]
+    );
+
+    if (imports.length === 0) {
+      return res.json([]);
+    }
+
+    const placeholders = imports.map(() => "?").join(",");
+    const [details] = await db.query(
+      `SELECT *
+       FROM stock_import_details
+       WHERE import_id IN (${placeholders})
+       ORDER BY id ASC`,
+      imports.map(item => item.id)
+    );
+    const detailsByImport = new Map();
+
+    details.forEach(detail => {
+      const importId = Number(detail.import_id);
+      if (!detailsByImport.has(importId)) detailsByImport.set(importId, []);
+      detailsByImport.get(importId).push(detail);
+    });
+
+    res.json(imports.map(item => ({
+      ...item,
+      details: detailsByImport.get(Number(item.id)) || []
+    })));
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Loi server" });
+  }
+});
+
+router.post("/foods/stock-imports", requirePermission(PERMISSIONS.FOODS_MANAGE), (req, res) => {
+  stockImportUpload.single("file")(req, res, async error => {
+    if (error) {
+      const isSizeError = error.code === "LIMIT_FILE_SIZE";
+      return res.status(isSizeError ? 413 : 400).json({
+        message: isSizeError ? "File CSV qua lon. Vui long chon file nho hon 1MB." : error.message || "Khong the doc file CSV"
+      });
+    }
+
+    const connection = await db.getConnection();
+
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: "Vui long chon file CSV" });
+      }
+
+      const rows = parseStockImportCsv(req.file.buffer);
+      if (rows.length === 0) {
+        return res.status(400).json({ message: "File CSV chua co dong du lieu de nhap" });
+      }
+
+      await fs.promises.mkdir(STOCK_IMPORT_UPLOAD_DIR, { recursive: true });
+      const storedFileName = `stock-import-${Date.now()}-${crypto.randomBytes(6).toString("hex")}.csv`;
+      await fs.promises.writeFile(path.join(STOCK_IMPORT_UPLOAD_DIR, storedFileName), req.file.buffer);
+
+      await connection.beginTransaction();
+
+      const today = new Date().toISOString().slice(0, 10);
+      const [importResult] = await connection.query(
+        `INSERT INTO stock_imports (file_name, stored_file_name, imported_by, import_date, total_rows, note)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [
+          req.file.originalname || storedFileName,
+          storedFileName,
+          req.user?.id || null,
+          req.body.importDate || today,
+          rows.length,
+          String(req.body.note || "").trim() || null
+        ]
+      );
+      const importId = importResult.insertId;
+
+      const [foods] = await connection.query("SELECT id, name, stock_quantity FROM foods");
+      const foodsByName = new Map();
+      foods.forEach(food => {
+        const key = normalizeFoodLookupName(food.name);
+        if (!foodsByName.has(key)) foodsByName.set(key, food);
+      });
+
+      const details = [];
+      let successRows = 0;
+      let failedRows = 0;
+
+      for (const row of rows) {
+        const inputName = String(row.inputName || "").trim();
+        const quantity = Number(row.quantity);
+        const food = foodsByName.get(normalizeFoodLookupName(inputName));
+
+        if (!inputName) {
+          failedRows += 1;
+          details.push([importId, null, null, inputName, 0, null, null, "failed", `Dong ${row.rowNumber}: thieu ten_mon`]);
+          continue;
+        }
+
+        if (!Number.isInteger(quantity) || quantity <= 0) {
+          failedRows += 1;
+          details.push([importId, null, null, inputName, 0, null, null, "failed", `Dong ${row.rowNumber}: so_luong_nhap khong hop le`]);
+          continue;
+        }
+
+        if (!food) {
+          failedRows += 1;
+          details.push([importId, null, null, inputName, quantity, null, null, "failed", `Dong ${row.rowNumber}: khong tim thay mon`]);
+          continue;
+        }
+
+        const oldStock = Number(food.stock_quantity || 0);
+        const newStock = oldStock + quantity;
+        await connection.query(
+          "UPDATE foods SET stock_quantity = stock_quantity + ? WHERE id = ?",
+          [quantity, food.id]
+        );
+        food.stock_quantity = newStock;
+        successRows += 1;
+        details.push([importId, food.id, food.name, inputName, quantity, oldStock, newStock, "success", null]);
+      }
+
+      if (details.length > 0) {
+        await connection.query(
+          `INSERT INTO stock_import_details
+            (import_id, food_id, food_name, input_name, quantity_added, old_stock, new_stock, status, error_message)
+           VALUES ?`,
+          [details]
+        );
+      }
+
+      await connection.query(
+        `UPDATE stock_imports
+         SET success_rows = ?, failed_rows = ?
+         WHERE id = ?`,
+        [successRows, failedRows, importId]
+      );
+
+      await connection.commit();
+
+      res.status(201).json({
+        message: "Da nhap so luong mon",
+        importId,
+        totalRows: rows.length,
+        successRows,
+        failedRows,
+        details: details.map(item => ({
+          foodId: item[1],
+          foodName: item[2],
+          inputName: item[3],
+          quantityAdded: item[4],
+          oldStock: item[5],
+          newStock: item[6],
+          status: item[7],
+          errorMessage: item[8]
+        }))
+      });
+    } catch (importError) {
+      await connection.rollback().catch(() => {});
+      console.error(importError);
+      const isBadCsv = /CSV|ten_mon|so_luong_nhap|dong du lieu/i.test(importError.message || "");
+      res.status(isBadCsv ? 400 : 500).json({ message: importError.message || "Khong the nhap so luong mon" });
+    } finally {
+      connection.release();
+    }
+  });
 });
 
 router.get("/foods", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req, res) => {
