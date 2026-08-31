@@ -848,6 +848,9 @@ router.post("/", requireAuth, async (req, res) => {
     }
 
     for (const [foodId, quantity] of Object.entries(demandByFoodId)) {
+      const food = foodMap.get(Number(foodId));
+      const oldStock = Number(food?.stock_quantity || 0);
+      const newStock = oldStock - Number(quantity);
       const [stockResult] = await connection.query(
         `UPDATE foods
          SET stock_quantity = stock_quantity - ?
@@ -858,6 +861,13 @@ router.post("/", requireAuth, async (req, res) => {
       if (stockResult.affectedRows === 0) {
         throw new Error("Inventory update failed");
       }
+
+      await connection.query(
+        `INSERT INTO stock_movements
+          (food_id, food_name, movement_type, quantity, stock_before, stock_after, reference_type, reference_id, note, created_by)
+         VALUES (?, ?, 'OUT', ?, ?, ?, 'order', ?, ?, ?)`,
+        [Number(foodId), food?.name || null, Number(quantity), oldStock, newStock, orderId, `Ban hang tu don #${orderId}`, req.user.id]
+      );
     }
 
     if (normalizedPaymentMethod === "qr") {
@@ -1168,9 +1178,22 @@ router.post("/:id/payment/cancel", requireAuth, async (req, res) => {
     );
 
     for (const item of items) {
+      const [foods] = await connection.query(
+        "SELECT id, name, stock_quantity FROM foods WHERE id = ? LIMIT 1 FOR UPDATE",
+        [item.food_id]
+      );
+      const food = foods[0] || {};
+      const oldStock = Number(food.stock_quantity || 0);
+      const newStock = oldStock + Number(item.quantity || 0);
       await connection.query(
         "UPDATE foods SET stock_quantity = stock_quantity + ? WHERE id = ?",
         [item.quantity, item.food_id]
+      );
+      await connection.query(
+        `INSERT INTO stock_movements
+          (food_id, food_name, movement_type, quantity, stock_before, stock_after, reference_type, reference_id, note, created_by)
+         VALUES (?, ?, 'RETURN', ?, ?, ?, 'order_cancel', ?, ?, ?)`,
+        [item.food_id, food.name || null, Number(item.quantity || 0), oldStock, newStock, orderId, `Hoan kho do huy don #${orderId}`, req.user.id]
       );
     }
 

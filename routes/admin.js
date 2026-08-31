@@ -472,6 +472,42 @@ function parseStockImportFile(file) {
   return mapStockImportRows(rows);
 }
 
+function buildWorkbookBuffer(rows, sheetName = "Data") {
+  const worksheet = XLSX.utils.json_to_sheet(rows);
+  worksheet["!cols"] = Object.keys(rows[0] || { data: "" }).map(key => ({
+    wch: Math.max(14, Math.min(36, key.length + 8))
+  }));
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+  return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+}
+
+function sendWorkbook(res, filename, rows, sheetName) {
+  const buffer = buildWorkbookBuffer(rows.length ? rows : [{ thong_bao: "Khong co du lieu" }], sheetName);
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  res.send(buffer);
+}
+
+function getDateRange(query = {}) {
+  const from = String(query.from || "").trim();
+  const to = String(query.to || "").trim();
+  const where = [];
+  const params = [];
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(from)) {
+    where.push("created_at >= ?");
+    params.push(`${from} 00:00:00`);
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+    where.push("created_at <= ?");
+    params.push(`${to} 23:59:59`);
+  }
+
+  return { where, params, from, to };
+}
+
 function parseNullablePositiveNumber(value) {
   if (value === null || value === undefined || value === "") return null;
 
@@ -1724,6 +1760,30 @@ router.patch("/orders/:id/status", requirePermission(PERMISSIONS.ORDERS_MANAGE),
     }
 
     if (status === "cancelled" && order.status !== "cancelled") {
+      const [items] = await connection.query(
+        "SELECT food_id, quantity FROM order_details WHERE order_id = ?",
+        [orderId]
+      );
+
+      for (const item of items) {
+        const [foods] = await connection.query(
+          "SELECT id, name, stock_quantity FROM foods WHERE id = ? LIMIT 1 FOR UPDATE",
+          [item.food_id]
+        );
+        const food = foods[0] || {};
+        const oldStock = Number(food.stock_quantity || 0);
+        const newStock = oldStock + Number(item.quantity || 0);
+        await connection.query(
+          "UPDATE foods SET stock_quantity = stock_quantity + ? WHERE id = ?",
+          [item.quantity, item.food_id]
+        );
+        await connection.query(
+          `INSERT INTO stock_movements
+            (food_id, food_name, movement_type, quantity, stock_before, stock_after, reference_type, reference_id, note, created_by)
+           VALUES (?, ?, 'RETURN', ?, ?, ?, 'order_cancel', ?, ?, ?)`,
+          [item.food_id, food.name || null, Number(item.quantity || 0), oldStock, newStock, orderId, `Hoan kho do admin huy don #${orderId}`, req.user?.id || null]
+        );
+      }
       await restoreOrderDiscountUsage(connection, order);
       await restoreOrderFlashSaleUsage(connection, orderId);
     }
@@ -1979,6 +2039,227 @@ router.delete("/categories/:id", requirePermission(PERMISSIONS.FOODS_MANAGE), as
   }
 });
 
+router.get("/inventory/overview", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req, res) => {
+  try {
+    const [foods] = await db.query(
+      `SELECT foods.id,
+              foods.name,
+              foods.stock_quantity,
+              foods.is_active,
+              categories.name AS category_name,
+              COALESCE(imports.total_in, 0) AS total_in,
+              COALESCE(exports.total_out, 0) AS total_out
+       FROM foods
+       LEFT JOIN categories ON categories.id = foods.category_id
+       LEFT JOIN (
+         SELECT food_id, SUM(quantity_added) AS total_in
+         FROM stock_import_details
+         WHERE status = 'success'
+         GROUP BY food_id
+       ) imports ON imports.food_id = foods.id
+       LEFT JOIN (
+         SELECT food_id, SUM(quantity) AS total_out
+         FROM order_details
+         JOIN orders ON orders.id = order_details.order_id
+         WHERE orders.status <> 'cancelled'
+           AND orders.payment_status NOT IN ('failed', 'cancelled')
+         GROUP BY food_id
+       ) exports ON exports.food_id = foods.id
+       ORDER BY foods.stock_quantity ASC, foods.name ASC`
+    );
+    const summary = foods.reduce((acc, food) => {
+      acc.totalFoods += 1;
+      acc.totalStock += Number(food.stock_quantity || 0);
+      acc.totalIn += Number(food.total_in || 0);
+      acc.totalOut += Number(food.total_out || 0);
+      if (Number(food.stock_quantity || 0) <= 0) acc.outOfStock += 1;
+      if (Number(food.stock_quantity || 0) > 0 && Number(food.stock_quantity || 0) <= 10) acc.lowStock += 1;
+      return acc;
+    }, { totalFoods: 0, totalStock: 0, totalIn: 0, totalOut: 0, outOfStock: 0, lowStock: 0 });
+
+    res.json({ summary, foods });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Không thể tải tổng quan kho" });
+  }
+});
+
+router.get("/inventory/imports", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req, res) => {
+  try {
+    const { where, params } = getDateRange(req.query);
+    const sqlWhere = where.length ? `WHERE ${where.map(item => item.replace("created_at", "stock_imports.created_at")).join(" AND ")}` : "";
+    const [imports] = await db.query(
+      `SELECT stock_imports.*,
+              users.fullname AS importer_name,
+              users.email AS importer_email,
+              COALESCE(SUM(CASE WHEN stock_import_details.status = 'success' THEN stock_import_details.quantity_added ELSE 0 END), 0) AS total_quantity
+       FROM stock_imports
+       LEFT JOIN users ON users.id = stock_imports.imported_by
+       LEFT JOIN stock_import_details ON stock_import_details.import_id = stock_imports.id
+       ${sqlWhere}
+       GROUP BY stock_imports.id
+       ORDER BY stock_imports.created_at DESC, stock_imports.id DESC
+       LIMIT 100`,
+      params
+    );
+    res.json(imports);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Không thể tải lịch sử nhập kho" });
+  }
+});
+
+router.get("/inventory/imports/:id", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req, res) => {
+  try {
+    const importId = Number(req.params.id);
+    if (!Number.isInteger(importId) || importId <= 0) {
+      return res.status(400).json({ message: "Mã phiếu nhập không hợp lệ" });
+    }
+
+    const [imports] = await db.query(
+      `SELECT stock_imports.*, users.fullname AS importer_name, users.email AS importer_email
+       FROM stock_imports
+       LEFT JOIN users ON users.id = stock_imports.imported_by
+       WHERE stock_imports.id = ?
+       LIMIT 1`,
+      [importId]
+    );
+    if (imports.length === 0) return res.status(404).json({ message: "Không tìm thấy phiếu nhập" });
+
+    const [details] = await db.query(
+      `SELECT stock_import_details.*,
+              foods.category_id,
+              categories.name AS category_name
+       FROM stock_import_details
+       LEFT JOIN foods ON foods.id = stock_import_details.food_id
+       LEFT JOIN categories ON categories.id = foods.category_id
+       WHERE stock_import_details.import_id = ?
+       ORDER BY stock_import_details.id ASC`,
+      [importId]
+    );
+    res.json({ import: imports[0], details });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Không thể tải chi tiết phiếu nhập" });
+  }
+});
+
+router.get("/inventory/imports/:id/export", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req, res) => {
+  try {
+    const importId = Number(req.params.id);
+    const [details] = await db.query(
+      `SELECT food_id AS ma_mon,
+              COALESCE(food_name, input_name) AS ten_mon,
+              quantity_added AS so_luong_nhap,
+              old_stock AS so_luong_truoc,
+              new_stock AS so_luong_sau,
+              status AS trang_thai,
+              error_message AS loi
+       FROM stock_import_details
+       WHERE import_id = ?
+       ORDER BY id ASC`,
+      [importId]
+    );
+    sendWorkbook(res, `phieu-nhap-kho-${importId}.xlsx`, details, "Phieu nhap");
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Không thể xuất phiếu nhập" });
+  }
+});
+
+router.get("/inventory/exports", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req, res) => {
+  try {
+    const { where, params } = getDateRange(req.query);
+    const sqlWhere = where.length ? `AND ${where.map(item => item.replace("created_at", "orders.created_at")).join(" AND ")}` : "";
+    const [orders] = await db.query(
+      `SELECT orders.id,
+              orders.customer_name,
+              orders.status,
+              orders.payment_status,
+              orders.created_at,
+              COUNT(order_details.id) AS total_items,
+              COALESCE(SUM(order_details.quantity), 0) AS total_quantity,
+              COALESCE(SUM(order_details.subtotal), 0) AS revenue
+       FROM orders
+       JOIN order_details ON order_details.order_id = orders.id
+       WHERE orders.status <> 'cancelled'
+         AND orders.payment_status NOT IN ('failed', 'cancelled')
+         ${sqlWhere}
+       GROUP BY orders.id
+       ORDER BY orders.created_at DESC, orders.id DESC
+       LIMIT 100`,
+      params
+    );
+    res.json(orders);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Không thể tải lịch sử xuất kho" });
+  }
+});
+
+router.get("/inventory/exports/:id", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req, res) => {
+  try {
+    const orderId = Number(req.params.id);
+    if (!Number.isInteger(orderId) || orderId <= 0) {
+      return res.status(400).json({ message: "Mã phiếu xuất không hợp lệ" });
+    }
+
+    const [orders] = await db.query("SELECT * FROM orders WHERE id = ? LIMIT 1", [orderId]);
+    if (orders.length === 0) return res.status(404).json({ message: "Không tìm thấy đơn xuất kho" });
+    const [details] = await db.query(
+      `SELECT order_details.food_id,
+              order_details.food_name,
+              order_details.quantity,
+              order_details.price,
+              order_details.subtotal,
+              movements.stock_before,
+              movements.stock_after,
+              movements.created_at AS exported_at
+       FROM order_details
+       LEFT JOIN stock_movements movements
+         ON movements.reference_type = 'order'
+        AND movements.reference_id = order_details.order_id
+        AND movements.food_id = order_details.food_id
+        AND movements.movement_type = 'OUT'
+       WHERE order_details.order_id = ?
+       ORDER BY order_details.id ASC`,
+      [orderId]
+    );
+    res.json({ order: orders[0], details });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Không thể tải chi tiết xuất kho" });
+  }
+});
+
+router.get("/inventory/exports/:id/export", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req, res) => {
+  try {
+    const orderId = Number(req.params.id);
+    const [details] = await db.query(
+      `SELECT order_details.food_id AS ma_mon,
+              order_details.food_name AS ten_mon,
+              order_details.quantity AS so_luong_ban,
+              movements.stock_before AS ton_truoc,
+              movements.stock_after AS ton_sau,
+              order_details.price AS don_gia,
+              order_details.subtotal AS thanh_tien
+       FROM order_details
+       LEFT JOIN stock_movements movements
+         ON movements.reference_type = 'order'
+        AND movements.reference_id = order_details.order_id
+        AND movements.food_id = order_details.food_id
+        AND movements.movement_type = 'OUT'
+       WHERE order_details.order_id = ?
+       ORDER BY order_details.id ASC`,
+      [orderId]
+    );
+    sendWorkbook(res, `phieu-xuat-kho-${orderId}.xlsx`, details, "Phieu xuat");
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Không thể xuất phiếu xuất" });
+  }
+});
+
 router.get("/foods/stock-import-template", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req, res) => {
   try {
     const [foods] = await db.query(
@@ -2162,6 +2443,12 @@ router.post("/foods/stock-imports", requirePermission(PERMISSIONS.FOODS_MANAGE),
         await connection.query(
           "UPDATE foods SET stock_quantity = stock_quantity + ? WHERE id = ?",
           [quantity, food.id]
+        );
+        await connection.query(
+          `INSERT INTO stock_movements
+            (food_id, food_name, movement_type, quantity, stock_before, stock_after, reference_type, reference_id, note, created_by)
+           VALUES (?, ?, 'IN', ?, ?, ?, 'import', ?, ?, ?)`,
+          [food.id, food.name, quantity, oldStock, newStock, importId, `Nhap kho tu file ${req.file.originalname || storedFileName}`, req.user?.id || null]
         );
         food.stock_quantity = newStock;
         successRows += 1;

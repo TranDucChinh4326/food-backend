@@ -93,6 +93,28 @@ CREATE TABLE IF NOT EXISTS stock_import_details (
   CONSTRAINT stock_import_details_food_fk FOREIGN KEY (food_id) REFERENCES foods (id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS stock_movements (
+  id INT NOT NULL AUTO_INCREMENT,
+  food_id INT DEFAULT NULL,
+  food_name VARCHAR(150) DEFAULT NULL,
+  movement_type ENUM('IN', 'OUT', 'RETURN', 'ADJUST') NOT NULL,
+  quantity INT NOT NULL,
+  stock_before INT DEFAULT NULL,
+  stock_after INT DEFAULT NULL,
+  reference_type VARCHAR(40) DEFAULT NULL,
+  reference_id INT DEFAULT NULL,
+  note VARCHAR(255) DEFAULT NULL,
+  created_by INT DEFAULT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY stock_movements_food_idx (food_id),
+  KEY stock_movements_type_idx (movement_type),
+  KEY stock_movements_created_idx (created_at),
+  KEY stock_movements_reference_idx (reference_type, reference_id),
+  CONSTRAINT stock_movements_food_fk FOREIGN KEY (food_id) REFERENCES foods (id) ON DELETE SET NULL,
+  CONSTRAINT stock_movements_user_fk FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS admin_audit_logs (
   id INT NOT NULL AUTO_INCREMENT,
   actor_id INT DEFAULT NULL,
