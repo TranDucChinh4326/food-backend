@@ -4,6 +4,7 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const multer = require("multer");
+const XLSX = require("xlsx");
 const { v2: cloudinary } = require("cloudinary");
 const db = require("../db");
 const {
@@ -297,16 +298,19 @@ router.use((req, res, next) => {
 const stockImportUpload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 1024 * 1024
+    fileSize: 2 * 1024 * 1024
   },
   fileFilter(req, file, callback) {
     const originalName = String(file.originalname || "").toLowerCase();
     const isCsv = file.mimetype === "text/csv"
       || file.mimetype === "application/vnd.ms-excel"
       || originalName.endsWith(".csv");
+    const isExcel = file.mimetype === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      || file.mimetype === "application/octet-stream"
+      || originalName.endsWith(".xlsx");
 
-    if (!isCsv) {
-      callback(new Error("Vui long chon file CSV"));
+    if (!isCsv && !isExcel) {
+      callback(new Error("Vui long chon file Excel .xlsx hoac CSV"));
       return;
     }
 
@@ -411,38 +415,61 @@ function parseCsvLine(line) {
   return values;
 }
 
-function parseStockImportCsv(buffer) {
-  const text = buffer.toString("utf8").replace(/^\uFEFF/, "");
-  const lines = text
-    .split(/\r?\n/)
-    .map(line => line.trim())
-    .filter(Boolean);
+function normalizeStockImportHeader(value) {
+  return normalizeFoodLookupName(value).replace(/\s+/g, "_");
+}
 
-  if (lines.length < 2) {
-    return [];
-  }
+function mapStockImportRows(rows) {
+  if (rows.length < 2) return [];
 
-  const headers = parseCsvLine(lines[0]).map(header => normalizeFoodLookupName(header).replace(/\s+/g, "_"));
+  const headers = rows[0].map(normalizeStockImportHeader);
+  const foodIdIndex = headers.findIndex(header => ["ma_mon", "id_mon", "food_id", "id"].includes(header));
   const nameIndex = headers.findIndex(header => ["ten_mon", "ten_hang", "mon", "name", "food_name"].includes(header));
   const quantityIndex = headers.findIndex(header => ["so_luong_nhap", "so_luong", "quantity", "quantity_added"].includes(header));
 
-  if (nameIndex === -1 || quantityIndex === -1) {
-    throw new Error("File CSV can co cot ten_mon va so_luong_nhap");
+  if (foodIdIndex === -1 && nameIndex === -1) {
+    throw new Error("File can co cot ma_mon hoac ten_mon");
   }
 
-  return lines.slice(1).map((line, index) => {
-    const values = parseCsvLine(line);
-    return {
+  if (quantityIndex === -1) {
+    throw new Error("File can co cot so_luong_nhap");
+  }
+
+  return rows.slice(1)
+    .map((values, index) => ({
       rowNumber: index + 2,
-      inputName: values[nameIndex] || "",
+      foodId: Number(values[foodIdIndex] || 0),
+      inputName: nameIndex === -1 ? "" : String(values[nameIndex] || "").trim(),
+      rawQuantity: values[quantityIndex],
       quantity: Number(values[quantityIndex] || 0)
-    };
-  });
+    }))
+    .filter(row => row.rawQuantity !== null && row.rawQuantity !== undefined && String(row.rawQuantity).trim() !== "");
 }
 
-function csvEscape(value) {
-  const text = String(value ?? "");
-  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+function parseStockImportFile(file) {
+  const originalName = String(file.originalname || "").toLowerCase();
+
+  if (originalName.endsWith(".xlsx")) {
+    const workbook = XLSX.read(file.buffer, { type: "buffer" });
+    const sheetName = workbook.SheetNames[0];
+    if (!sheetName) return [];
+
+    const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], {
+      header: 1,
+      raw: false,
+      defval: ""
+    });
+    return mapStockImportRows(rows);
+  }
+
+  const text = file.buffer.toString("utf8").replace(/^\uFEFF/, "");
+  const rows = text
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean)
+    .map(parseCsvLine);
+
+  return mapStockImportRows(rows);
 }
 
 function parseNullablePositiveNumber(value) {
@@ -1952,17 +1979,54 @@ router.delete("/categories/:id", requirePermission(PERMISSIONS.FOODS_MANAGE), as
   }
 });
 
-router.get("/foods/stock-import-template", requirePermission(PERMISSIONS.FOODS_MANAGE), (req, res) => {
-  const rows = [
-    ["ten_mon", "so_luong_nhap"],
-    ["Coca", "100"],
-    ["Nuoc suoi", "100"]
-  ];
-  const csv = rows.map(row => row.map(csvEscape).join(",")).join("\r\n");
+router.get("/foods/stock-import-template", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req, res) => {
+  try {
+    const [foods] = await db.query(
+      `SELECT foods.id,
+              foods.name,
+              foods.stock_quantity,
+              foods.is_active,
+              categories.name AS category_name,
+              parent_categories.name AS parent_category_name
+       FROM foods
+       LEFT JOIN categories ON categories.id = foods.category_id
+       LEFT JOIN categories AS parent_categories ON parent_categories.id = categories.parent_id
+       ORDER BY foods.name ASC, foods.id ASC`
+    );
 
-  res.setHeader("Content-Type", "text/csv; charset=utf-8");
-  res.setHeader("Content-Disposition", "attachment; filename=\"mau-nhap-so-luong-mon.csv\"");
-  res.send(`\uFEFF${csv}`);
+    const rows = foods.map(food => ({
+      ma_mon: food.id,
+      ten_mon: food.name,
+      danh_muc: food.parent_category_name
+        ? `${food.parent_category_name} / ${food.category_name || ""}`
+        : food.category_name || "",
+      so_luong_hien_tai: Number(food.stock_quantity || 0),
+      so_luong_nhap: "",
+      trang_thai: Number(food.is_active) ? "Dang ban" : "Da an"
+    }));
+    const worksheet = XLSX.utils.json_to_sheet(rows, {
+      header: ["ma_mon", "ten_mon", "danh_muc", "so_luong_hien_tai", "so_luong_nhap", "trang_thai"]
+    });
+    worksheet["!cols"] = [
+      { wch: 10 },
+      { wch: 32 },
+      { wch: 28 },
+      { wch: 18 },
+      { wch: 16 },
+      { wch: 14 }
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Nhap so luong");
+    const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", "attachment; filename=\"mau-nhap-so-luong-mon.xlsx\"");
+    res.send(buffer);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Khong the xuat file mau nhap so luong" });
+  }
 });
 
 router.get("/foods/stock-imports", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req, res) => {
@@ -2014,7 +2078,7 @@ router.post("/foods/stock-imports", requirePermission(PERMISSIONS.FOODS_MANAGE),
     if (error) {
       const isSizeError = error.code === "LIMIT_FILE_SIZE";
       return res.status(isSizeError ? 413 : 400).json({
-        message: isSizeError ? "File CSV qua lon. Vui long chon file nho hon 1MB." : error.message || "Khong the doc file CSV"
+        message: isSizeError ? "File qua lon. Vui long chon file nho hon 2MB." : error.message || "Khong the doc file"
       });
     }
 
@@ -2022,16 +2086,17 @@ router.post("/foods/stock-imports", requirePermission(PERMISSIONS.FOODS_MANAGE),
 
     try {
       if (!req.file) {
-        return res.status(400).json({ message: "Vui long chon file CSV" });
+        return res.status(400).json({ message: "Vui long chon file Excel .xlsx hoac CSV" });
       }
 
-      const rows = parseStockImportCsv(req.file.buffer);
+      const rows = parseStockImportFile(req.file);
       if (rows.length === 0) {
-        return res.status(400).json({ message: "File CSV chua co dong du lieu de nhap" });
+        return res.status(400).json({ message: "File chua co dong du lieu de nhap" });
       }
 
       await fs.promises.mkdir(STOCK_IMPORT_UPLOAD_DIR, { recursive: true });
-      const storedFileName = `stock-import-${Date.now()}-${crypto.randomBytes(6).toString("hex")}.csv`;
+      const importExtension = String(req.file.originalname || "").toLowerCase().endsWith(".xlsx") ? "xlsx" : "csv";
+      const storedFileName = `stock-import-${Date.now()}-${crypto.randomBytes(6).toString("hex")}.${importExtension}`;
       await fs.promises.writeFile(path.join(STOCK_IMPORT_UPLOAD_DIR, storedFileName), req.file.buffer);
 
       await connection.beginTransaction();
@@ -2052,6 +2117,7 @@ router.post("/foods/stock-imports", requirePermission(PERMISSIONS.FOODS_MANAGE),
       const importId = importResult.insertId;
 
       const [foods] = await connection.query("SELECT id, name, stock_quantity FROM foods");
+      const foodsById = new Map(foods.map(food => [Number(food.id), food]));
       const foodsByName = new Map();
       foods.forEach(food => {
         const key = normalizeFoodLookupName(food.name);
@@ -2065,23 +2131,29 @@ router.post("/foods/stock-imports", requirePermission(PERMISSIONS.FOODS_MANAGE),
       for (const row of rows) {
         const inputName = String(row.inputName || "").trim();
         const quantity = Number(row.quantity);
-        const food = foodsByName.get(normalizeFoodLookupName(inputName));
-
-        if (!inputName) {
-          failedRows += 1;
-          details.push([importId, null, null, inputName, 0, null, null, "failed", `Dong ${row.rowNumber}: thieu ten_mon`]);
-          continue;
-        }
+        const hasFoodId = Number.isInteger(row.foodId) && row.foodId > 0;
+        const food = hasFoodId
+          ? foodsById.get(Number(row.foodId))
+          : foodsByName.get(normalizeFoodLookupName(inputName));
 
         if (!Number.isInteger(quantity) || quantity <= 0) {
+          if (!row.rawQuantity && row.rawQuantity !== 0) {
+            continue;
+          }
           failedRows += 1;
           details.push([importId, null, null, inputName, 0, null, null, "failed", `Dong ${row.rowNumber}: so_luong_nhap khong hop le`]);
           continue;
         }
 
+        if (!hasFoodId && !inputName) {
+          failedRows += 1;
+          details.push([importId, null, null, inputName, 0, null, null, "failed", `Dong ${row.rowNumber}: thieu ma_mon hoac ten_mon`]);
+          continue;
+        }
+
         if (!food) {
           failedRows += 1;
-          details.push([importId, null, null, inputName, quantity, null, null, "failed", `Dong ${row.rowNumber}: khong tim thay mon`]);
+          details.push([importId, null, null, inputName || `#${row.foodId}`, quantity, null, null, "failed", `Dong ${row.rowNumber}: khong tim thay mon`]);
           continue;
         }
 
