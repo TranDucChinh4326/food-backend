@@ -325,7 +325,7 @@ async function buildReply(message, userId) {
   }
 
   if (hasIntent(normalized, [/cua-hang|dia-chi-shop|hotline|lien-he|mo-cua|dong-cua|gio-lam/])) {
-    return "Bạn có thể xem thông tin cửa hàng, hotline và email ở trang Liên hệ của Ẩm Thực 1979.";
+    return "Bạn có thể xem thông tin cửa hàng, hotline và email ở trang Liên hệ của Bếp 1979.";
   }
 
   if (hasIntent(normalized, [/thoi-gian-giao|bao-lau|may-phut|khi-nao-giao/])) {
@@ -343,7 +343,7 @@ async function buildReply(message, userId) {
   if (hasIntent(normalized, [/khuyen-mai|voucher|ma-giam|giam-gia|uu-dai|sale/])) {
     const discounts = await getActiveDiscounts();
     return discounts.length
-      ? `Hiện Ẩm Thực 1979 đang có các ưu đãi:\n${discounts.map(formatDiscountLine).join("\n")}`
+      ? `Hiện Bếp 1979 đang có các ưu đãi:\n${discounts.map(formatDiscountLine).join("\n")}`
       : "Hiện chưa có khuyến mãi đang hoạt động trong hệ thống.";
   }
 

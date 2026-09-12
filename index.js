@@ -130,7 +130,7 @@ app.set("emitOrderEvent", (eventName, payload = {}) => {
 });
 
 app.get("/", (req, res) => {
-  res.send("Ẩm Thực 1979 API đang chạy");
+  res.send("Bếp 1979 API đang chạy");
 });
 
 app.get("/api/health", (req, res) => {
@@ -490,7 +490,7 @@ async function ensureSchema() {
       INSERT IGNORE INTO discounts
         (id, code, name, discount_type, discount_value, min_order, max_discount, usage_limit, is_active)
       VALUES
-        (1, 'AMTHUC1979', 'Giam 10% cho don từ 100.000d', 'percent', 10, 100000, 30000, 100, 1),
+        (1, 'BEP1979', 'Giam 10% cho don từ 100.000d', 'percent', 10, 100000, 30000, 100, 1),
         (2, 'FREESHIP20', 'Giam 20.000d cho don từ 150.000d', 'fixed', 20000, 150000, NULL, NULL, 1)
     `);
   } catch (error) {

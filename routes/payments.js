@@ -14,7 +14,7 @@ function parseAmount(value) {
 }
 
 function extractOrderId(content) {
-  const match = normalizeText(content).match(/(?:AMTHUC1979|FOODHUB)\s*DH\s*(\d+)/i);
+  const match = normalizeText(content).match(/(?:BEP1979|AMTHUC1979|FOODHUB)\s*DH\s*(\d+)/i);
   return match ? Number(match[1]) : 0;
 }
 

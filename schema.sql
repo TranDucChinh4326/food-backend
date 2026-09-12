@@ -522,10 +522,10 @@ INSERT IGNORE INTO foods (id, name, category_id, price, description, image, is_a
   (6, 'Phở bò tái', 6, 55000, 'Pho bo nong hoi, nuoc dung ngot thanh, thit bo mem.', 'https://images.unsplash.com/photo-1582878826629-29b7ad1cdc43', 1);
 
 INSERT IGNORE INTO announcements (id, title, content, is_active) VALUES
-  (1, 'Miễn phí giao hàng cho don từ 150.000d', 'Ẩm Thực 1979 miễn phí giao hàng trong khu vuc nội thành cho cac đơn hàng từ 150.000d.', 1),
+  (1, 'Miễn phí giao hàng cho don từ 150.000d', 'Bếp 1979 miễn phí giao hàng trong khu vuc nội thành cho cac đơn hàng từ 150.000d.', 1),
   (2, 'Cập nhật thực đơn mới cuối tuần', 'Nhieu món ăn mới sẽ được bo sung vao thực đơn vao thứ bảy hang tuan.', 1),
-  (3, 'Hỗ trợ đặt hàng nhanh qua hotline', 'Neu can hỗ trợ đơn hàng, vui lòng liên hệ hotline tren trang liên hệ của Ẩm Thực 1979.', 1);
+  (3, 'Hỗ trợ đặt hàng nhanh qua hotline', 'Neu can hỗ trợ đơn hàng, vui lòng liên hệ hotline tren trang liên hệ của Bếp 1979.', 1);
 
 INSERT IGNORE INTO discounts (id, code, name, discount_type, discount_value, min_order, max_discount, usage_limit, is_active) VALUES
-  (1, 'AMTHUC1979', 'Giam 10% cho don từ 100.000d', 'percent', 10, 100000, 30000, 100, 1),
+  (1, 'BEP1979', 'Giam 10% cho don từ 100.000d', 'percent', 10, 100000, 30000, 100, 1),
   (2, 'FREESHIP20', 'Giam 20.000d cho don từ 150.000d', 'fixed', 20000, 150000, NULL, NULL, 1);

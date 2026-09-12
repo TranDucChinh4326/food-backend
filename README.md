@@ -1,6 +1,6 @@
-# Ẩm Thực 1979 Backend
+# Bếp 1979 Backend
 
-Backend Express + MySQL cho website Ẩm Thực 1979.
+Backend Express + MySQL cho website Bếp 1979.
 
 ## Cau truc file
 

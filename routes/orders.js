@@ -36,7 +36,7 @@ function ensureQrBankConfig() {
 }
 
 function buildTransferContent(orderId) {
-  return `AMTHUC1979 DH${orderId}`;
+  return `BEP1979 DH${orderId}`;
 }
 
 function buildVietQrUrl({ bankCode, accountNo, accountName, amount, transferContent }) {
