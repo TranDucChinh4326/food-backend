@@ -1,4 +1,4 @@
-# Cau truc backend FoodHub
+# Cau truc backend Ẩm Thực 1979
 
 Repo này chỉ chứa backend Node.js + Express + MySQL để deploy lên Render.
 

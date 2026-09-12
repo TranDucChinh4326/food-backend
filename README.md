@@ -1,6 +1,6 @@
-# FoodHub Backend
+# Ẩm Thực 1979 Backend
 
-Backend Express + MySQL cho website FoodHub.
+Backend Express + MySQL cho website Ẩm Thực 1979.
 
 ## Cau truc file
 

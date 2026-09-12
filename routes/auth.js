@@ -278,10 +278,10 @@ async function sendVerificationEmail(email, fullname, verificationUrl) {
     body: JSON.stringify({
       from: process.env.MAIL_FROM,
       to: email,
-      subject: "Xác thực tài khoản FoodHub",
+      subject: "Xác thực tài khoản Ẩm Thực 1979",
       html: `
         <p>Chao ${String(fullname || "ban")},</p>
-        <p>Bam vao liên kết ben duoi de xác thực tài khoản FoodHub:</p>
+        <p>Bam vao liên kết ben duoi de xác thực tài khoản Ẩm Thực 1979:</p>
         <p><a href="${verificationUrl}">${verificationUrl}</a></p>
         <p>Liên kết hết hạn sau 30 phut.</p>
       `
@@ -321,10 +321,10 @@ async function sendPasswordResetEmail(email, fullname, otp) {
     await gmailTransport.sendMail({
       from: process.env.MAIL_FROM || process.env.MAIL_USER,
       to: email,
-      subject: "Ma OTP dat lai mat khau FoodHub",
+      subject: "Ma OTP dat lai mat khau Ẩm Thực 1979",
       html: `
         <p>Chao ${String(fullname || "ban")},</p>
-        <p>Ma OTP dat lai mat khau FoodHub cua ban la:</p>
+        <p>Ma OTP dat lai mat khau Ẩm Thực 1979 cua ban la:</p>
         <p style="font-size:24px;font-weight:700;letter-spacing:4px;">${otp}</p>
         <p>Mã này hết hạn sau 10 phút. Nếu bạn không yêu cầu, hãy bỏ qua email này.</p>
       `
@@ -346,10 +346,10 @@ async function sendPasswordResetEmail(email, fullname, otp) {
     body: JSON.stringify({
       from: process.env.MAIL_FROM,
       to: email,
-      subject: "Ma OTP dat lai mat khau FoodHub",
+      subject: "Ma OTP dat lai mat khau Ẩm Thực 1979",
       html: `
         <p>Chao ${String(fullname || "ban")},</p>
-        <p>Ma OTP dat lai mat khau FoodHub cua ban la:</p>
+        <p>Ma OTP dat lai mat khau Ẩm Thực 1979 cua ban la:</p>
         <p style="font-size:24px;font-weight:700;letter-spacing:4px;">${otp}</p>
         <p>Mã này hết hạn sau 10 phút. Nếu bạn không yêu cầu, hãy bỏ qua email này.</p>
       `
@@ -366,7 +366,7 @@ async function sendPasswordResetEmail(email, fullname, otp) {
 
 async function findProviderUser(provider, providerId) {
   // Tìm user đã liên kết Google/Facebook bằng provider_user_id.
-  // Social login dùng hàm này để quyết định đăng nhập ngay hay yêu cầu tạo tài khoản FoodHub.
+  // Social login dùng hàm này để quyết định đăng nhập ngay hay yêu cầu tạo tài khoản Ẩm Thực 1979.
   const [accounts] = await db.query(
     `SELECT users.*
      FROM user_auth_providers
@@ -380,7 +380,7 @@ async function findProviderUser(provider, providerId) {
 }
 
 async function createAuthProvider(userId, { provider, providerId, email }) {
-  // Ghi quan hệ giữa tài khoản FoodHub và provider đăng nhập.
+  // Ghi quan hệ giữa tài khoản Ẩm Thực 1979 và provider đăng nhập.
   // Dữ liệu này cho phép một user đăng nhập bằng local, Google hoặc Facebook mà vẫn dùng chung hồ sơ.
   const normalizedProvider = String(provider || "").trim().toLowerCase();
   const normalizedProviderId = String(providerId || "").trim();
@@ -465,7 +465,7 @@ async function getSocialLoginUser({ email, provider, providerId, allowEmailFallb
   }
 
   if (!normalizedEmail && allowEmailFallback && normalizedProviderId) {
-    normalizedEmail = `${normalizedProvider}_${normalizedProviderId}@foodhub.local`;
+    normalizedEmail = `${normalizedProvider}_${normalizedProviderId}@amthuc1979.local`;
   }
 
   if (!normalizedEmail) {
@@ -772,7 +772,7 @@ router.post("/forgot-password", async (req, res) => {
   // Nhận email và gửi link reset nếu tài khoản hợp lệ. Response luôn chung chung để không lộ email có tồn tại hay không.
   try {
     const normalizedEmail = normalizeEmail(req.body.email);
-    const genericMessage = "Nếu email tồn tại, FoodHub đã gửi hướng dẫn đặt lại mật khẩu.";
+    const genericMessage = "Nếu email tồn tại, Ẩm Thực 1979 đã gửi hướng dẫn đặt lại mật khẩu.";
 
     if (!normalizedEmail) {
       return res.status(400).json({ message: "Vui lòng nhập email." });
@@ -803,7 +803,7 @@ router.post("/forgot-password", async (req, res) => {
     }
 
     res.json({
-      message: "FoodHub đã gửi mã OTP đặt lại mật khẩu đến email của bạn.",
+      message: "Ẩm Thực 1979 đã gửi mã OTP đặt lại mật khẩu đến email của bạn.",
       resetOtp: shouldExposeVerificationUrl(emailSent) ? otp : undefined
     });
   } catch (error) {

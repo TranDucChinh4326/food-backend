@@ -76,7 +76,7 @@ router.post("/", requireAuth, async (req, res) => {
     );
 
     res.status(201).json({
-      message: "Đã gửi phản hồi. FoodHub sẽ xem xét và phản hồi sớm nhất.",
+      message: "Đã gửi phản hồi. Ẩm Thực 1979 sẽ xem xét và phản hồi sớm nhất.",
       feedback: {
         id: result.insertId,
         rating,

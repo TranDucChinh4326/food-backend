@@ -22,7 +22,7 @@ CREATE TEMPORARY TABLE keep_users AS
 SELECT id
 FROM users
 WHERE UPPER(role) = 'ADMIN'
-   OR email = 'admin@foodhub.local';
+   OR email = 'admin@amthuc1979.local';
 
 DELETE od
 FROM order_details od
@@ -58,7 +58,7 @@ LEFT JOIN keep_users ku ON ku.id = u.id
 WHERE ku.id IS NULL;
 
 UPDATE users
-SET email = 'admin@foodhub.local',
+SET email = 'admin@amthuc1979.local',
     username = NULL,
     password = '$2b$10$S8TH17kslyyd3.2SNQvwUOp4npKg1UFauXyD/N1tZzNM4JsRVfNVC',
     password_set = 1,
@@ -67,11 +67,11 @@ SET email = 'admin@foodhub.local',
     email_verified = 1,
     email_verified_at = COALESCE(email_verified_at, NOW())
 WHERE UPPER(role) = 'ADMIN'
-   OR email = 'admin@foodhub.local';
+   OR email = 'admin@amthuc1979.local';
 
 INSERT IGNORE INTO user_auth_providers (user_id, provider, provider_user_id, provider_email)
 SELECT id, 'local', NULL, email
 FROM users
-WHERE email = 'admin@foodhub.local';
+WHERE email = 'admin@amthuc1979.local';
 
 COMMIT;

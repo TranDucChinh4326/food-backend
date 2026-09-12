@@ -74,7 +74,7 @@ function normalizeUsername(username) {
 }
 
 function buildStaffEmail(username) {
-  return `${normalizeUsername(username)}@staff.foodhub.local`;
+  return `${normalizeUsername(username)}@staff.amthuc1979.local`;
 }
 
 function getApiBaseUrl(req) {
