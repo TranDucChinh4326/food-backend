@@ -101,6 +101,36 @@ function formatFoodLine(food, index) {
   return `${index + 1}. ${food.name}${categoryText}: ${formatMoney(food.price)} (${stockText}${soldText})`;
 }
 
+function toFoodRecommendation(food) {
+  return {
+    type: "food",
+    id: Number(food.id),
+    name: food.name,
+    description: food.description || "",
+    price: Number(food.price || 0),
+    image: food.image || "",
+    stockQuantity: Number(food.stock_quantity || 0),
+    categoryName: food.category_name || ""
+  };
+}
+
+function toComboRecommendation(combo) {
+  return {
+    type: "combo",
+    id: Number(combo.id),
+    name: combo.name,
+    description: combo.description || "",
+    price: Number(combo.price || 0),
+    image: combo.image || "",
+    maxAvailable: Number(combo.max_available || 0),
+    items: combo.items || []
+  };
+}
+
+function reply(message, recommendations = []) {
+  return { message, recommendations };
+}
+
 function getKeywords(message) {
   const stopWords = new Set([
     "mon", "an", "do", "gia", "bao", "nhieu", "tien", "co", "khong", "hom", "nay",
@@ -244,6 +274,83 @@ async function findFoods(message, options = {}) {
   return foods;
 }
 
+async function findCombos(message, options = {}) {
+  const keywords = options.keywords || getKeywords(message).filter(keyword => keyword !== "combo");
+  const where = ["combos.is_active = 1"];
+  const params = [];
+
+  if (keywords.length) {
+    const clauses = keywords.map(() => `(
+      combos.name LIKE ? OR combos.description LIKE ? OR EXISTS (
+        SELECT 1
+        FROM combo_items search_items
+        JOIN foods search_foods ON search_foods.id = search_items.food_id
+        WHERE search_items.combo_id = combos.id AND search_foods.name LIKE ?
+      )
+    )`);
+    where.push(`(${clauses.join(" OR ")})`);
+    keywords.forEach(keyword => {
+      const value = `%${escapeLike(keyword)}%`;
+      params.push(value, value, value);
+    });
+  }
+
+  if (options.maxPrice) {
+    where.push("combos.price <= ?");
+    params.push(options.maxPrice);
+  }
+
+  const [rows] = await db.query(
+    `SELECT combos.id, combos.name, combos.description, combos.price, combos.image,
+            combo_items.food_id, combo_items.quantity, combo_items.sort_order,
+            foods.name AS food_name, foods.image AS food_image, foods.stock_quantity
+     FROM combos
+     JOIN combo_items ON combo_items.combo_id = combos.id
+     JOIN foods ON foods.id = combo_items.food_id AND foods.is_active = 1
+     WHERE ${where.join(" AND ")}
+     ORDER BY combos.sort_order ASC, combos.id DESC, combo_items.sort_order ASC, combo_items.id ASC`,
+    params
+  );
+
+  const combos = new Map();
+  rows.forEach(row => {
+    const comboId = Number(row.id);
+    if (!combos.has(comboId)) {
+      combos.set(comboId, {
+        id: comboId,
+        name: row.name,
+        description: row.description,
+        price: Number(row.price || 0),
+        image: row.image,
+        items: []
+      });
+    }
+    combos.get(comboId).items.push({
+      foodId: Number(row.food_id),
+      name: row.food_name,
+      image: row.food_image || "",
+      quantity: Number(row.quantity || 1),
+      stockQuantity: Number(row.stock_quantity || 0)
+    });
+  });
+
+  return Array.from(combos.values())
+    .map(combo => ({
+      ...combo,
+      max_available: combo.items.length
+        ? Math.min(...combo.items.map(item => Math.floor(item.stockQuantity / Math.max(item.quantity, 1))))
+        : 0
+    }))
+    .filter(combo => !options.inStock || combo.max_available > 0)
+    .slice(0, Number(options.limit || 5));
+}
+
+function formatComboLine(combo, index) {
+  const itemText = combo.items.map(item => `${item.quantity}x ${item.name}`).join(", ");
+  const stockText = combo.max_available > 0 ? `còn ${combo.max_available} suất` : "tạm hết suất";
+  return `${index + 1}. ${combo.name}: ${formatMoney(combo.price)} (${itemText}; ${stockText})`;
+}
+
 async function getActiveDiscounts(limit = 5) {
   // Lấy voucher/khuyến mãi đang có hiệu lực từ Database.
   // Chatbot dùng dữ liệu này khi khách hỏi khuyến mãi, thay vì tự tạo mã giảm giá.
@@ -317,7 +424,7 @@ async function buildReply(message, userId) {
   const tasteKeywords = getTasteKeywords(tokens);
 
   if (hasIntent(normalized, [/^xin-chao|^chao|hello|hi|alo|tu-van|ho-tro/])) {
-    return "Chào bạn, mình có thể hỗ trợ tìm món, hỏi giá, danh mục, món bán chạy, khuyến mãi, giao hàng, phí ship, trạng thái đơn và giỏ hàng.";
+    return "Chào bạn, mình có thể hỗ trợ tìm món hoặc combo, hỏi giá, món bán chạy, khuyến mãi, giao hàng, phí ship, trạng thái đơn và giỏ hàng.";
   }
 
   if (hasIntent(normalized, [/trang-thai-don|don-hang|lich-su|theo-doi|kiem-tra-don|track/])) {
@@ -347,10 +454,25 @@ async function buildReply(message, userId) {
       : "Hiện chưa có khuyến mãi đang hoạt động trong hệ thống.";
   }
 
+  if (hasIntent(normalized, [/combo|com-bo|goi-mon|set-mon/])) {
+    const budget = getBudget(message);
+    const combos = await findCombos(message, {
+      inStock: true,
+      maxPrice: budget || null,
+      limit: 4
+    });
+    return combos.length
+      ? reply(
+          `Mình tìm thấy các combo phù hợp:\n${combos.map(formatComboLine).join("\n")}`,
+          combos.map(toComboRecommendation)
+        )
+      : "Hiện chưa có combo còn hàng phù hợp với yêu cầu của bạn.";
+  }
+
   if (tasteKeywords.length) {
     const foods = await findFoods(message, { inStock: true, keywords: tasteKeywords, matchTaste: true, limit: 5 });
     return foods.length
-      ? `Mình gợi ý các món hợp khẩu vị bạn hỏi:\n${foods.map(formatFoodLine).join("\n")}`
+      ? reply(`Mình gợi ý các món hợp khẩu vị bạn hỏi:`, foods.map(toFoodRecommendation))
       : "Mình chưa tìm thấy món phù hợp với khẩu vị đó trong dữ liệu hiện tại.";
   }
 
@@ -359,14 +481,14 @@ async function buildReply(message, userId) {
     const topOnly = hasAnyToken(tokens, ["nhat", "top1"]) || normalized.includes("top-1");
     const foods = await findFoods(message, { inStock: true, orderBy: "sold", foodOnly, limit: topOnly ? 1 : 5 });
     return foods.length
-      ? `Các món đang bán chạy:\n${foods.map(formatFoodLine).join("\n")}`
+      ? reply("Các món đang bán chạy:", foods.map(toFoodRecommendation))
       : "Hiện chưa có dữ liệu món bán chạy phù hợp.";
   }
 
   if (hasIntent(normalized, [/mon-moi|moi|new|vua-them/])) {
     const foods = await findFoods(message, { inStock: true, orderBy: "new", limit: 5 });
     return foods.length
-      ? `Các món mới/cập nhật gần đây:\n${foods.map(formatFoodLine).join("\n")}`
+      ? reply("Các món mới/cập nhật gần đây:", foods.map(toFoodRecommendation))
       : "Hiện chưa có món mới phù hợp.";
   }
 
@@ -384,7 +506,7 @@ async function buildReply(message, userId) {
     }
 
     return foods.length
-      ? `Mình tìm thấy món phù hợp với mức giá bạn hỏi:\n${foods.map(formatFoodLine).join("\n")}`
+      ? reply("Mình tìm thấy món phù hợp với mức giá bạn hỏi:", foods.map(toFoodRecommendation))
       : "Mình chưa tìm thấy món phù hợp với mức giá đó trong dữ liệu hiện tại.";
   }
 
@@ -394,7 +516,7 @@ async function buildReply(message, userId) {
   ) {
     const foods = await findFoods(message, { inStock: true, limit: 5 });
     return foods.length
-      ? `Mình tìm thấy các món thuộc nhóm bạn hỏi:\n${foods.map(formatFoodLine).join("\n")}`
+      ? reply("Mình tìm thấy các món thuộc nhóm bạn hỏi:", foods.map(toFoodRecommendation))
       : "Mình chưa tìm thấy món thuộc nhóm đó trong dữ liệu hiện tại.";
   }
 
@@ -404,7 +526,7 @@ async function buildReply(message, userId) {
   }
 
   if (matchedFoods.length) {
-    return `Mình tìm thấy món phù hợp:\n${matchedFoods.map(formatFoodLine).join("\n")}`;
+    return reply("Mình tìm thấy món phù hợp:", matchedFoods.map(toFoodRecommendation));
   }
 
   return "Xin lỗi, mình chưa hiểu yêu cầu của bạn. Bạn có thể hỏi về món ăn, giá, khuyến mãi hoặc đơn hàng nhé.";
@@ -429,13 +551,15 @@ router.post("/", optionalAuth, async (req, res) => {
     await ensureChatSession(sessionId, req.user?.id || null);
     await saveChatMessage(sessionId, "user", message);
 
-    const reply = await buildReply(message, req.user?.id || null);
-    await saveChatMessage(sessionId, "bot", reply);
+    const result = await buildReply(message, req.user?.id || null);
+    const response = typeof result === "string" ? reply(result) : result;
+    await saveChatMessage(sessionId, "bot", response.message);
 
     res.json({
       success: true,
       sessionId,
-      message: reply
+      message: response.message,
+      recommendations: response.recommendations || []
     });
   } catch (error) {
     console.error("Chat API error:", error);
