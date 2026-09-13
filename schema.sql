@@ -238,7 +238,10 @@ CREATE TABLE IF NOT EXISTS orders (
 CREATE TABLE IF NOT EXISTS order_details (
   id INT NOT NULL AUTO_INCREMENT,
   order_id INT NOT NULL,
-  food_id INT NOT NULL,
+  food_id INT DEFAULT NULL,
+  item_type VARCHAR(20) NOT NULL DEFAULT 'food',
+  combo_id INT DEFAULT NULL,
+  parent_detail_id INT DEFAULT NULL,
   food_name VARCHAR(150) NOT NULL,
   original_price INT DEFAULT NULL,
   price INT NOT NULL,
@@ -249,6 +252,7 @@ CREATE TABLE IF NOT EXISTS order_details (
   PRIMARY KEY (id),
   KEY order_id (order_id),
   KEY food_id (food_id),
+  KEY combo_id (combo_id),
   CONSTRAINT order_details_order_fk FOREIGN KEY (order_id) REFERENCES orders (id),
   CONSTRAINT order_details_food_fk FOREIGN KEY (food_id) REFERENCES foods (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

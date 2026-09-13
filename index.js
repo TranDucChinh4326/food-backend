@@ -637,7 +637,26 @@ async function ensureSchema() {
     }
   }
 
+  try {
+    await db.query("ALTER TABLE order_details MODIFY food_id INT DEFAULT NULL");
+  } catch (error) {
+    if (error.code === "ER_FK_COLUMN_CANNOT_CHANGE_CHILD" || error.code === "ER_CANNOT_CHANGE_COLUMN") {
+      try {
+        await db.query("ALTER TABLE order_details DROP FOREIGN KEY order_details_food_fk");
+        await db.query("ALTER TABLE order_details MODIFY food_id INT DEFAULT NULL");
+        await db.query("ALTER TABLE order_details ADD CONSTRAINT order_details_food_fk FOREIGN KEY (food_id) REFERENCES foods (id)");
+      } catch (innerError) {
+        console.error("Order detail food_id nullable schema check failed:", innerError.message);
+      }
+    } else {
+      console.error("Order detail food_id nullable schema check failed:", error.message);
+    }
+  }
+
   const orderDetailFlashSaleColumnChecks = [
+    ["item_type", "ALTER TABLE order_details ADD COLUMN item_type VARCHAR(20) NOT NULL DEFAULT 'food' AFTER food_id"],
+    ["combo_id", "ALTER TABLE order_details ADD COLUMN combo_id INT DEFAULT NULL AFTER item_type"],
+    ["parent_detail_id", "ALTER TABLE order_details ADD COLUMN parent_detail_id INT DEFAULT NULL AFTER combo_id"],
     ["original_price", "ALTER TABLE order_details ADD COLUMN original_price INT DEFAULT NULL"],
     ["flash_sale_id", "ALTER TABLE order_details ADD COLUMN flash_sale_id INT DEFAULT NULL"],
     ["flash_sale_item_id", "ALTER TABLE order_details ADD COLUMN flash_sale_item_id INT DEFAULT NULL"]

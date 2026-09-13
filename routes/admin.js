@@ -1877,7 +1877,7 @@ router.get("/orders", requirePermission(PERMISSIONS.ORDERS_MANAGE), async (req, 
     const orderIds = orders.map(order => order.id);
     const placeholders = orderIds.map(() => "?").join(",");
     const [items] = await db.query(
-      `SELECT order_id, food_id, food_name, price, quantity, subtotal
+      `SELECT order_id, food_id, item_type, combo_id, parent_detail_id, food_name, price, quantity, subtotal
        FROM order_details
        WHERE order_id IN (${placeholders})
        ORDER BY id ASC`,
@@ -1960,7 +1960,7 @@ router.patch("/orders/:id/status", requirePermission(PERMISSIONS.ORDERS_MANAGE),
 
     if (status === "cancelled" && order.status !== "cancelled") {
       const [items] = await connection.query(
-        "SELECT food_id, quantity FROM order_details WHERE order_id = ?",
+        "SELECT food_id, quantity FROM order_details WHERE order_id = ? AND food_id IS NOT NULL",
         [orderId]
       );
 
@@ -2262,6 +2262,7 @@ router.get("/inventory/overview", requirePermission(PERMISSIONS.FOODS_MANAGE), a
          JOIN orders ON orders.id = order_details.order_id
          WHERE orders.status <> 'cancelled'
            AND orders.payment_status NOT IN ('failed', 'cancelled')
+           AND order_details.food_id IS NOT NULL
          GROUP BY food_id
        ) exports ON exports.food_id = foods.id
        ORDER BY foods.stock_quantity ASC, foods.name ASC`
@@ -2376,8 +2377,8 @@ router.get("/inventory/exports", requirePermission(PERMISSIONS.FOODS_MANAGE), as
               orders.status,
               orders.payment_status,
               orders.created_at,
-              COUNT(order_details.id) AS total_items,
-              COALESCE(SUM(order_details.quantity), 0) AS total_quantity,
+              SUM(CASE WHEN order_details.parent_detail_id IS NULL THEN 1 ELSE 0 END) AS total_items,
+              COALESCE(SUM(CASE WHEN order_details.food_id IS NOT NULL THEN order_details.quantity ELSE 0 END), 0) AS total_quantity,
               COALESCE(SUM(order_details.subtotal), 0) AS revenue
        FROM orders
        JOIN order_details ON order_details.order_id = orders.id
@@ -2407,6 +2408,9 @@ router.get("/inventory/exports/:id", requirePermission(PERMISSIONS.FOODS_MANAGE)
     if (orders.length === 0) return res.status(404).json({ message: "Không tìm thấy đơn xuất kho" });
     const [details] = await db.query(
       `SELECT order_details.food_id,
+              order_details.item_type,
+              order_details.combo_id,
+              order_details.parent_detail_id,
               order_details.food_name,
               order_details.quantity,
               order_details.price,
@@ -2436,6 +2440,8 @@ router.get("/inventory/exports/:id/export", requirePermission(PERMISSIONS.FOODS_
     const orderId = Number(req.params.id);
     const [details] = await db.query(
       `SELECT order_details.food_id AS ma_mon,
+              order_details.item_type AS loai_dong,
+              order_details.combo_id AS ma_combo,
               order_details.food_name AS ten_mon,
               order_details.quantity AS so_luong_ban,
               movements.stock_before AS ton_truoc,

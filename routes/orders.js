@@ -554,6 +554,9 @@ async function getItemsByOrderIds(orderIds) {
   const [items] = await db.query(
     `SELECT order_details.order_id,
             order_details.food_id,
+            order_details.item_type,
+            order_details.combo_id,
+            order_details.parent_detail_id,
             order_details.food_name,
             order_details.price,
             order_details.quantity,
@@ -670,31 +673,100 @@ router.post("/", requireAuth, async (req, res) => {
       return res.status(400).json({ message: "Giỏ hàng đang trống" });
     }
 
-    const normalizedItems = items.map(item => ({
-      foodId: Number(item.foodId || item.id),
-      quantity: Number(item.quantity)
-    }));
+    const normalizedItems = items.map(item => {
+      const type = String(item.type || (item.comboId ? "combo" : "food")).toLowerCase();
+      return {
+        type,
+        foodId: Number(item.foodId || item.id),
+        comboId: Number(item.comboId || item.id),
+        quantity: Number(item.quantity)
+      };
+    });
 
-    const hasInvalidItem = normalizedItems.some(
-      item => !isPositiveInteger(item.foodId) || !isPositiveInteger(item.quantity)
-    );
+    const hasInvalidItem = normalizedItems.some(item => {
+      if (!isPositiveInteger(item.quantity)) return true;
+      if (item.type === "combo") return !isPositiveInteger(item.comboId);
+      if (item.type === "food") return !isPositiveInteger(item.foodId);
+      return true;
+    });
 
     if (hasInvalidItem) {
       return res.status(400).json({ message: "Giỏ hàng không hợp lệ" });
     }
 
-    const demandByFoodId = normalizedItems.reduce((map, item) => {
-      // Gom số lượng theo foodId để kiểm tồn kho chính xác khi payload có nhiều dòng cùng một món.
-      map[item.foodId] = (map[item.foodId] || 0) + item.quantity;
-      return map;
-    }, {});
-
-    const uniqueFoodIds = Object.keys(demandByFoodId).map(Number);
-    const placeholders = uniqueFoodIds.map(() => "?").join(",");
     await connection.beginTransaction();
 
+    const foodCartItems = normalizedItems.filter(item => item.type === "food");
+    const comboCartItems = normalizedItems.filter(item => item.type === "combo");
+    const comboIds = [...new Set(comboCartItems.map(item => item.comboId))];
+    const combosById = new Map();
+    const comboItemsById = new Map();
+
+    if (comboIds.length) {
+      const comboPlaceholders = comboIds.map(() => "?").join(",");
+      const [comboRows] = await connection.query(
+        `SELECT id, name, price, image
+         FROM combos
+         WHERE is_active = 1 AND id IN (${comboPlaceholders})`,
+        comboIds
+      );
+
+      if (comboRows.length !== comboIds.length) {
+        const error = new Error("Một số combo không còn khả dụng");
+        error.status = 400;
+        throw error;
+      }
+
+      comboRows.forEach(combo => combosById.set(Number(combo.id), combo));
+
+      const [comboItemRows] = await connection.query(
+        `SELECT combo_items.combo_id, combo_items.food_id, combo_items.quantity,
+                foods.name AS food_name, foods.price, foods.stock_quantity
+         FROM combo_items
+         JOIN foods ON foods.id = combo_items.food_id AND foods.is_active = 1
+         WHERE combo_items.combo_id IN (${comboPlaceholders})
+         ORDER BY combo_items.sort_order ASC, combo_items.id ASC
+         FOR UPDATE`,
+        comboIds
+      );
+
+      comboItemRows.forEach(item => {
+        const comboId = Number(item.combo_id);
+        if (!comboItemsById.has(comboId)) comboItemsById.set(comboId, []);
+        comboItemsById.get(comboId).push(item);
+      });
+
+      const emptyComboId = comboIds.find(comboId => !comboItemsById.get(comboId)?.length);
+      if (emptyComboId) {
+        const error = new Error("Một số combo chưa có món khả dụng");
+        error.status = 400;
+        throw error;
+      }
+    }
+
+    const demandByFoodId = {};
+    foodCartItems.forEach(item => {
+      demandByFoodId[item.foodId] = (demandByFoodId[item.foodId] || 0) + item.quantity;
+    });
+
+    comboCartItems.forEach(item => {
+      const comboItems = comboItemsById.get(item.comboId) || [];
+      comboItems.forEach(comboItem => {
+        const foodId = Number(comboItem.food_id);
+        demandByFoodId[foodId] = (demandByFoodId[foodId] || 0) + Number(comboItem.quantity || 1) * item.quantity;
+      });
+    });
+
+    const uniqueFoodIds = Object.keys(demandByFoodId).map(Number);
+    if (uniqueFoodIds.length === 0) {
+      const error = new Error("Giỏ hàng không hợp lệ");
+      error.status = 400;
+      throw error;
+    }
+
+    const placeholders = uniqueFoodIds.map(() => "?").join(",");
     const [foods] = await connection.query(
-      `SELECT id, name, price, stock_quantity FROM foods WHERE is_active = 1 AND id IN (${placeholders})`,
+      `SELECT id, name, price, stock_quantity FROM foods WHERE is_active = 1 AND id IN (${placeholders}) FOR UPDATE`,
       uniqueFoodIds
     );
 
@@ -716,10 +788,13 @@ router.post("/", requireAuth, async (req, res) => {
       throw error;
     }
 
-    const activeFlashSaleItems = await getActiveFlashSaleItems(connection, uniqueFoodIds, req.user.id);
+    const activeFlashSaleItems = foodCartItems.length
+      ? await getActiveFlashSaleItems(connection, [...new Set(foodCartItems.map(item => item.foodId))], req.user.id)
+      : new Map();
     const flashSaleDemand = {};
 
-    const orderItems = normalizedItems.map(item => {
+    const orderItems = [];
+    foodCartItems.forEach(item => {
       const food = foodMap.get(item.foodId);
       const flashSale = activeFlashSaleItems.get(item.foodId);
       const originalPrice = Number(food.price);
@@ -729,8 +804,11 @@ router.post("/", requireAuth, async (req, res) => {
         flashSaleDemand[flashSale.flash_sale_item_id] = (flashSaleDemand[flashSale.flash_sale_item_id] || 0) + item.quantity;
       }
 
-      return {
+      orderItems.push({
+        itemType: "food",
         foodId: item.foodId,
+        comboId: null,
+        parentIndex: null,
         foodName: food.name,
         originalPrice,
         price,
@@ -738,7 +816,43 @@ router.post("/", requireAuth, async (req, res) => {
         subtotal: price * item.quantity,
         flashSaleId: flashSale ? Number(flashSale.flash_sale_id) : null,
         flashSaleItemId: flashSale ? Number(flashSale.flash_sale_item_id) : null
-      };
+      });
+    });
+
+    comboCartItems.forEach(item => {
+      const combo = combosById.get(item.comboId);
+      const parentIndex = orderItems.length;
+      orderItems.push({
+        itemType: "combo",
+        foodId: null,
+        comboId: item.comboId,
+        parentIndex: null,
+        foodName: combo.name,
+        originalPrice: Number(combo.price || 0),
+        price: Number(combo.price || 0),
+        quantity: item.quantity,
+        subtotal: Number(combo.price || 0) * item.quantity,
+        flashSaleId: null,
+        flashSaleItemId: null
+      });
+
+      (comboItemsById.get(item.comboId) || []).forEach(comboItem => {
+        const food = foodMap.get(Number(comboItem.food_id));
+        const quantity = Number(comboItem.quantity || 1) * item.quantity;
+        orderItems.push({
+          itemType: "combo_component",
+          foodId: Number(comboItem.food_id),
+          comboId: item.comboId,
+          parentIndex,
+          foodName: food?.name || comboItem.food_name,
+          originalPrice: Number(food?.price || comboItem.price || 0),
+          price: 0,
+          quantity,
+          subtotal: 0,
+          flashSaleId: null,
+          flashSaleItemId: null
+        });
+      });
     });
 
     for (const [itemId, quantity] of Object.entries(flashSaleDemand)) {
@@ -812,24 +926,34 @@ router.post("/", requireAuth, async (req, res) => {
       }
     }
     let paymentSession = null;
-    const detailValues = orderItems.map(item => [
-      orderId,
-      item.foodId,
-      item.foodName,
-      item.originalPrice,
-      item.price,
-      item.quantity,
-      item.subtotal,
-      item.flashSaleId,
-      item.flashSaleItemId
-    ]);
+    const insertedDetailIds = [];
+    for (let index = 0; index < orderItems.length; index += 1) {
+      const item = orderItems[index];
+      const parentDetailId = item.parentIndex === null || item.parentIndex === undefined
+        ? null
+        : insertedDetailIds[item.parentIndex] || null;
 
-    await connection.query(
-      `INSERT INTO order_details
-        (order_id, food_id, food_name, original_price, price, quantity, subtotal, flash_sale_id, flash_sale_item_id)
-       VALUES ?`,
-      [detailValues]
-    );
+      const [detailResult] = await connection.query(
+        `INSERT INTO order_details
+          (order_id, food_id, item_type, combo_id, parent_detail_id, food_name, original_price, price, quantity, subtotal, flash_sale_id, flash_sale_item_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          orderId,
+          item.foodId,
+          item.itemType,
+          item.comboId,
+          parentDetailId,
+          item.foodName,
+          item.originalPrice,
+          item.price,
+          item.quantity,
+          item.subtotal,
+          item.flashSaleId,
+          item.flashSaleItemId
+        ]
+      );
+      insertedDetailIds[index] = detailResult.insertId;
+    }
 
     for (const [itemId, quantity] of Object.entries(flashSaleDemand)) {
       const [saleUpdate] = await connection.query(
@@ -1173,7 +1297,7 @@ router.post("/:id/payment/cancel", requireAuth, async (req, res) => {
     }
 
     const [items] = await connection.query(
-      "SELECT food_id, quantity FROM order_details WHERE order_id = ?",
+      "SELECT food_id, quantity FROM order_details WHERE order_id = ? AND food_id IS NOT NULL",
       [orderId]
     );
 
@@ -1361,6 +1485,9 @@ router.get("/:id", requireAuth, async (req, res) => {
     const [items] = await db.query(
       `SELECT order_details.id,
               order_details.food_id,
+              order_details.item_type,
+              order_details.combo_id,
+              order_details.parent_detail_id,
               order_details.food_name,
               order_details.price,
               order_details.quantity,
