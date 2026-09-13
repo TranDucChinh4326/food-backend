@@ -186,6 +186,44 @@ function normalizeDiscountCode(code) {
   return String(code || "").trim().toUpperCase().replace(/\s+/g, "");
 }
 
+function parseComboPayload(body = {}) {
+  const name = String(body.name || "").trim();
+  const description = String(body.description || "").trim();
+  const price = Number(body.price || 0);
+  const image = String(body.image || "").trim();
+  const sortOrder = Number(body.sortOrder ?? body.sort_order ?? 0);
+  const isActive = Number(body.isActive ?? body.is_active ?? 1) === 1;
+  const rawItems = Array.isArray(body.items) ? body.items : [];
+  const merged = new Map();
+
+  if (!name) return { error: "Ten combo khong duoc de trong" };
+  if (!Number.isInteger(price) || price <= 0) return { error: "Gia combo khong hop le" };
+
+  rawItems.forEach((item, index) => {
+    const foodId = Number(item.foodId ?? item.food_id);
+    const quantity = Number(item.quantity || 0);
+    if (!Number.isInteger(foodId) || foodId <= 0 || !Number.isInteger(quantity) || quantity <= 0) return;
+    const current = merged.get(foodId) || { foodId, quantity: 0, sortOrder: index };
+    current.quantity += quantity;
+    merged.set(foodId, current);
+  });
+
+  const items = [...merged.values()];
+  if (items.length === 0) return { error: "Vui long chon it nhat mot mon trong combo" };
+
+  return {
+    value: {
+      name,
+      description,
+      price,
+      image,
+      sortOrder: Number.isFinite(sortOrder) ? sortOrder : 0,
+      isActive,
+      items
+    }
+  };
+}
+
 const AUDIT_METHOD_ACTIONS = {
   POST: "create",
   PUT: "update",
@@ -1377,6 +1415,141 @@ router.delete("/flash-sales/:saleId/items/:itemId", requirePermission(PERMISSION
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Không thể xóa món flash sale" });
+  }
+});
+
+router.get("/combos", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req, res) => {
+  try {
+    const [combos] = await db.query(
+      `SELECT combos.id, combos.name, combos.description, combos.price, combos.image,
+              combos.sort_order, combos.is_active, combos.created_at, combos.updated_at,
+              COUNT(combo_items.id) AS item_count
+       FROM combos
+       LEFT JOIN combo_items ON combo_items.combo_id = combos.id
+       GROUP BY combos.id
+       ORDER BY combos.sort_order ASC, combos.created_at DESC, combos.id DESC`
+    );
+
+    res.json(combos);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Khong the tai combo mon an" });
+  }
+});
+
+router.get("/combos/:id", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req, res) => {
+  try {
+    const comboId = Number(req.params.id);
+    if (!Number.isInteger(comboId) || comboId <= 0) return res.status(400).json({ message: "Combo khong hop le" });
+
+    const [combos] = await db.query(
+      `SELECT id, name, description, price, image, sort_order, is_active, created_at, updated_at
+       FROM combos
+       WHERE id = ?`,
+      [comboId]
+    );
+    if (combos.length === 0) return res.status(404).json({ message: "Khong tim thay combo" });
+
+    const [items] = await db.query(
+      `SELECT combo_items.id, combo_items.food_id, combo_items.quantity, combo_items.sort_order,
+              foods.name AS food_name, foods.price AS food_price, foods.image AS food_image,
+              foods.stock_quantity
+       FROM combo_items
+       JOIN foods ON foods.id = combo_items.food_id
+       WHERE combo_items.combo_id = ?
+       ORDER BY combo_items.sort_order ASC, combo_items.id ASC`,
+      [comboId]
+    );
+
+    res.json({ ...combos[0], items });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Khong the tai combo" });
+  }
+});
+
+async function saveComboWithItems(req, res, comboId = null) {
+  const parsed = parseComboPayload(req.body);
+  if (parsed.error) return res.status(400).json({ message: parsed.error });
+
+  const combo = parsed.value;
+  const connection = await db.getConnection();
+
+  try {
+    await connection.beginTransaction();
+    const foodIds = combo.items.map(item => item.foodId);
+    const placeholders = foodIds.map(() => "?").join(",");
+    const [foods] = await connection.query(
+      `SELECT id FROM foods WHERE is_active = 1 AND id IN (${placeholders})`,
+      foodIds
+    );
+
+    if (foods.length !== foodIds.length) {
+      await connection.rollback();
+      return res.status(400).json({ message: "Combo co mon khong ton tai hoac dang an" });
+    }
+
+    let savedComboId = comboId;
+    if (comboId) {
+      const [result] = await connection.query(
+        `UPDATE combos
+         SET name = ?, description = ?, price = ?, image = ?, sort_order = ?, is_active = ?
+         WHERE id = ?`,
+        [combo.name, combo.description, combo.price, combo.image, combo.sortOrder, combo.isActive ? 1 : 0, comboId]
+      );
+      if (result.affectedRows === 0) {
+        await connection.rollback();
+        return res.status(404).json({ message: "Khong tim thay combo" });
+      }
+      await connection.query("DELETE FROM combo_items WHERE combo_id = ?", [comboId]);
+    } else {
+      const [result] = await connection.query(
+        `INSERT INTO combos (name, description, price, image, sort_order, is_active)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [combo.name, combo.description, combo.price, combo.image, combo.sortOrder, combo.isActive ? 1 : 0]
+      );
+      savedComboId = result.insertId;
+    }
+
+    for (const item of combo.items) {
+      await connection.query(
+        `INSERT INTO combo_items (combo_id, food_id, quantity, sort_order)
+         VALUES (?, ?, ?, ?)`,
+        [savedComboId, item.foodId, item.quantity, item.sortOrder]
+      );
+    }
+
+    await connection.commit();
+    res.status(comboId ? 200 : 201).json({ message: comboId ? "Da cap nhat combo" : "Da tao combo", id: savedComboId });
+  } catch (error) {
+    await connection.rollback().catch(() => {});
+    console.error(error);
+    res.status(500).json({ message: "Khong the luu combo" });
+  } finally {
+    connection.release();
+  }
+}
+
+router.post("/combos", requirePermission(PERMISSIONS.FOODS_MANAGE), (req, res) => saveComboWithItems(req, res));
+
+router.put("/combos/:id", requirePermission(PERMISSIONS.FOODS_MANAGE), (req, res) => {
+  const comboId = Number(req.params.id);
+  if (!Number.isInteger(comboId) || comboId <= 0) return res.status(400).json({ message: "Combo khong hop le" });
+  return saveComboWithItems(req, res, comboId);
+});
+
+router.delete("/combos/:id", requirePermission(PERMISSIONS.FOODS_MANAGE), async (req, res) => {
+  try {
+    const comboId = Number(req.params.id);
+    if (!Number.isInteger(comboId) || comboId <= 0) return res.status(400).json({ message: "Combo khong hop le" });
+
+    const [result] = await db.query("DELETE FROM combos WHERE id = ?", [comboId]);
+    if (result.affectedRows === 0) return res.status(404).json({ message: "Khong tim thay combo" });
+
+    res.json({ message: "Da xoa combo" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Khong the xoa combo" });
   }
 });
 

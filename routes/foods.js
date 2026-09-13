@@ -222,6 +222,69 @@ router.get("/", async (req, res) => {
     }
 });
 
+router.get("/combos", async (req, res) => {
+    try {
+        const [combos] = await db.query(
+            `SELECT id, name, description, price, image, sort_order, is_active
+             FROM combos
+             WHERE is_active = 1
+             ORDER BY sort_order ASC, created_at DESC, id DESC
+             LIMIT 12`
+        );
+
+        if (combos.length === 0) return res.json([]);
+
+        const comboIds = combos.map(combo => combo.id);
+        const placeholders = comboIds.map(() => "?").join(",");
+        const [items] = await db.query(
+            `SELECT combo_items.combo_id, combo_items.food_id, combo_items.quantity, combo_items.sort_order,
+                    foods.name AS food_name, foods.price AS food_price, foods.image AS food_image,
+                    foods.stock_quantity
+             FROM combo_items
+             JOIN foods ON foods.id = combo_items.food_id
+             WHERE combo_items.combo_id IN (${placeholders})
+               AND foods.is_active = 1
+             ORDER BY combo_items.sort_order ASC, combo_items.id ASC`,
+            comboIds
+        );
+
+        const itemsByCombo = items.reduce((lookup, item) => {
+            const key = Number(item.combo_id);
+            lookup[key] = lookup[key] || [];
+            lookup[key].push({
+                foodId: Number(item.food_id),
+                name: item.food_name,
+                price: Number(item.food_price || 0),
+                image: item.food_image,
+                quantity: Number(item.quantity || 1),
+                stockQuantity: Number(item.stock_quantity || 0)
+            });
+            return lookup;
+        }, {});
+
+        res.json(combos.map(combo => {
+            const comboItems = itemsByCombo[Number(combo.id)] || [];
+            const maxAvailable = comboItems.length
+                ? Math.min(...comboItems.map(item => Math.floor(Number(item.stockQuantity || 0) / Math.max(Number(item.quantity || 1), 1))))
+                : 0;
+
+            return {
+                id: Number(combo.id),
+                name: combo.name,
+                description: combo.description,
+                price: Number(combo.price || 0),
+                image: combo.image,
+                sortOrder: Number(combo.sort_order || 0),
+                items: comboItems,
+                maxAvailable
+            };
+        }).filter(combo => combo.items.length > 0));
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Khong the tai combo mon an" });
+    }
+});
+
 router.get("/categories", async (req, res) => {
     // GET /api/foods/categories
     // Trả cây danh mục công khai để frontend dựng menu điều hướng và bộ lọc món ăn/đồ uống.

@@ -289,6 +289,34 @@ CREATE TABLE IF NOT EXISTS flash_sale_items (
   CONSTRAINT flash_sale_items_food_fk FOREIGN KEY (food_id) REFERENCES foods (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS combos (
+  id INT NOT NULL AUTO_INCREMENT,
+  name VARCHAR(150) NOT NULL,
+  description TEXT DEFAULT NULL,
+  price INT NOT NULL,
+  image VARCHAR(500) DEFAULT NULL,
+  sort_order INT NOT NULL DEFAULT 0,
+  is_active TINYINT NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY combo_active_order (is_active, sort_order, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS combo_items (
+  id INT NOT NULL AUTO_INCREMENT,
+  combo_id INT NOT NULL,
+  food_id INT NOT NULL,
+  quantity INT NOT NULL DEFAULT 1,
+  sort_order INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY combo_food_once (combo_id, food_id),
+  KEY combo_item_food (food_id),
+  CONSTRAINT combo_items_combo_fk FOREIGN KEY (combo_id) REFERENCES combos (id) ON DELETE CASCADE,
+  CONSTRAINT combo_items_food_fk FOREIGN KEY (food_id) REFERENCES foods (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS shipping_methods (
   id INT NOT NULL AUTO_INCREMENT,
   name VARCHAR(120) NOT NULL,
