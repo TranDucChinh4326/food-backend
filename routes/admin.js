@@ -1553,6 +1553,32 @@ router.delete("/combos/:id", requirePermission(PERMISSIONS.FOODS_MANAGE), async 
   }
 });
 
+router.post("/combos/image", requirePermission(PERMISSIONS.FOODS_MANAGE), (req, res) => {
+  foodImageUpload.single("image")(req, res, async error => {
+    if (error) {
+      const isSizeError = error.code === "LIMIT_FILE_SIZE";
+      return res.status(isSizeError ? 413 : 400).json({
+        message: isSizeError
+          ? "Anh combo qua lon. Vui long chon anh nho hon 2MB."
+          : error.message || "Khong the tai anh combo"
+      });
+    }
+
+    try {
+      if (!req.file) return res.status(400).json({ message: "Vui long chon anh combo" });
+
+      const imageUrl = await saveFoodImageFile(req, req.file);
+      return res.json({
+        message: "Da tai anh combo",
+        image: imageUrl
+      });
+    } catch (uploadError) {
+      console.error(uploadError);
+      return res.status(500).json({ message: "Khong the luu anh combo" });
+    }
+  });
+});
+
 router.get("/shipping-methods", requirePermission(PERMISSIONS.SHIPPING_MANAGE), async (req, res) => {
   try {
     const [methods] = await db.query(
