@@ -191,6 +191,18 @@ async function ensureSchema() {
   // Đồng bộ schema tối thiểu cho các bảng nghiệp vụ: auth, địa chỉ, voucher, thanh toán, chat, đánh giá.
   // Hàm này bổ trợ schema.sql/migrations để môi trường đang chạy không bị lỗi thiếu cột/bảng.
   try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS announcement_reads (
+        user_id INT NOT NULL,
+        announcement_id INT NOT NULL,
+        read_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (user_id, announcement_id),
+        INDEX announcement_reads_announcement_idx (announcement_id),
+        CONSTRAINT announcement_reads_user_fk FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+        CONSTRAINT announcement_reads_announcement_fk FOREIGN KEY (announcement_id) REFERENCES announcements (id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
     await db.query("ALTER TABLE announcements ADD COLUMN expires_at TIMESTAMP NULL DEFAULT NULL");
     console.log("Added announcements.expires_at column");
   } catch (error) {
