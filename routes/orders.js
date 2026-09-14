@@ -561,9 +561,12 @@ async function getItemsByOrderIds(orderIds) {
             order_details.price,
             order_details.quantity,
             order_details.subtotal,
+            foods.image AS food_image,
             food_reviews.id AS review_id,
             food_reviews.is_visible AS review_is_visible
      FROM order_details
+     LEFT JOIN foods
+       ON foods.id = order_details.food_id
      LEFT JOIN food_reviews
        ON food_reviews.order_id = order_details.order_id
       AND food_reviews.food_id = order_details.food_id
@@ -1353,6 +1356,97 @@ router.post("/:id/payment/cancel", requireAuth, async (req, res) => {
   }
 });
 
+router.post("/:id/cancel", requireAuth, async (req, res) => {
+  // POST /api/orders/:id/cancel
+  // Cho phép khách hàng hủy đơn hàng của chính mình khi đơn đang ở trạng thái 'pending'
+  const connection = await db.getConnection();
+
+  try {
+    const orderId = Number(req.params.id);
+
+    if (!isPositiveInteger(orderId)) {
+      return res.status(400).json({ message: "Mã đơn hàng không hợp lệ" });
+    }
+
+    await connection.beginTransaction();
+
+    const [orders] = await connection.query(
+      `SELECT id, user_id, status, payment_status, discount_code, user_discount_id
+       FROM orders
+       WHERE id = ? AND user_id = ?
+       LIMIT 1
+       FOR UPDATE`,
+      [orderId, req.user.id]
+    );
+
+    if (orders.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ message: "Không tìm thấy đơn hàng" });
+    }
+
+    const order = orders[0];
+
+    if (order.status !== "pending") {
+      await connection.rollback();
+      return res.status(400).json({ message: "Đơn hàng đã được quán xử lý, không thể tự hủy" });
+    }
+
+    const [items] = await connection.query(
+      "SELECT food_id, quantity FROM order_details WHERE order_id = ? AND food_id IS NOT NULL",
+      [orderId]
+    );
+
+    for (const item of items) {
+      const [foods] = await connection.query(
+        "SELECT id, name, stock_quantity FROM foods WHERE id = ? LIMIT 1 FOR UPDATE",
+        [item.food_id]
+      );
+      const food = foods[0] || {};
+      const oldStock = Number(food.stock_quantity || 0);
+      const newStock = oldStock + Number(item.quantity || 0);
+      await connection.query(
+        "UPDATE foods SET stock_quantity = stock_quantity + ? WHERE id = ?",
+        [item.quantity, item.food_id]
+      );
+      await connection.query(
+        `INSERT INTO stock_movements
+          (food_id, food_name, movement_type, quantity, stock_before, stock_after, reference_type, reference_id, note, created_by)
+         VALUES (?, ?, 'RETURN', ?, ?, ?, 'order_cancel', ?, ?, ?)`,
+        [item.food_id, food.name || null, Number(item.quantity || 0), oldStock, newStock, orderId, `Hoan kho do khach huy don #${orderId}`, req.user.id]
+      );
+    }
+
+    await connection.query(
+      "UPDATE orders SET status = 'cancelled' WHERE id = ?",
+      [orderId]
+    );
+    await connection.query(
+      "UPDATE payment_sessions SET status = 'cancelled', cancelled_at = NOW() WHERE order_id = ? AND status = 'pending'",
+      [orderId]
+    );
+    await restoreUsedVoucher(connection, order);
+    await restoreFlashSaleUsage(connection, orderId);
+
+    await connection.commit();
+    req.app.get("emitOrderEvent")?.("order:updated", {
+      order: {
+        id: orderId,
+        userId: req.user.id,
+        status: "cancelled",
+        updatedAt: new Date().toISOString()
+      }
+    });
+
+    res.json({ message: "Đã hủy đơn hàng thành công" });
+  } catch (error) {
+    await connection.rollback();
+    console.error(error);
+    res.status(500).json({ message: "Lỗi server khi hủy đơn" });
+  } finally {
+    connection.release();
+  }
+});
+
 router.post("/discount/preview", requireAuth, async (req, res) => {
   // POST /api/orders/discount/preview
   // Frontend gọi để tính thử voucher trên tiền món/phí ship trước khi tạo đơn thật.
@@ -1492,9 +1586,12 @@ router.get("/:id", requireAuth, async (req, res) => {
               order_details.price,
               order_details.quantity,
               order_details.subtotal,
+              foods.image AS food_image,
               food_reviews.id AS review_id,
               food_reviews.is_visible AS review_is_visible
        FROM order_details
+       LEFT JOIN foods
+         ON foods.id = order_details.food_id
        LEFT JOIN food_reviews
          ON food_reviews.order_id = order_details.order_id
         AND food_reviews.food_id = order_details.food_id
