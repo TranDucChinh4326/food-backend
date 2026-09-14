@@ -21,7 +21,7 @@ function mapReview(row) {
     foodId: row.food_id,
     orderId: row.order_id,
     foodName: row.food_name,
-    foodImage: row.food_image,
+    foodImage: row.food_image || "",
     categoryName: row.category_name,
     userId: row.user_id,
     customerName: row.customer_name,
@@ -40,7 +40,7 @@ router.get("/", async (req, res) => {
   try {
     const foodId = Number(req.query.foodId || 0);
     const rating = normalizeRating(req.query.rating);
-    const limit = Math.max(1, Math.min(40, Number(req.query.limit || 12)));
+    const limit = Math.max(1, Math.min(200, Number(req.query.limit || 12)));
     const conditions = ["food_reviews.is_visible = 1", "foods.is_active = 1"];
     const params = [];
 
@@ -67,7 +67,6 @@ router.get("/", async (req, res) => {
               food_reviews.replied_at,
               food_reviews.created_at,
               foods.name AS food_name,
-              foods.image AS food_image,
               categories.name AS category_name,
               COALESCE(users.fullname, users.username, users.email, 'Khách hàng') AS customer_name,
               users.avatar
