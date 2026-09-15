@@ -683,9 +683,15 @@ async function getSocialProfile(provider, accessToken) {
 }
 
 router.post("/register", async (req, res) => {
-  res.status(410).json({
-    message: "Đăng ký thu cong da tat. Vui lòng xác thực bằng Google hoặc Facebook truoc."
-  });
+  try {
+    const { username, email, password, fullname } = req.body;
+    const user = await createLocalUser({ username, email, password, fullname });
+
+    sendAuthResponse(res, user);
+  } catch (error) {
+    console.error(error);
+    res.status(error.status || 500).json({ message: error.message || "Lỗi server" });
+  }
 });
 
 router.get("/verify-email", async (req, res) => {
