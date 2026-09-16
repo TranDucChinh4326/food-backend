@@ -1713,12 +1713,7 @@ router.post("/qr/session/init", (req, res) => {
     const expiresIn = 120; // 2 minutes TTL
     const expiresAt = Date.now() + expiresIn * 1000;
 
-    const qrData = JSON.stringify({
-      action: "web_qr_login",
-      app: "bep1979",
-      sessionId,
-      shortCode
-    });
+    const qrData = sessionId;
 
     const session = {
       sessionId,
@@ -1830,6 +1825,13 @@ router.post("/qr/session/scan", requireAuth, async (req, res) => {
       } catch (_) {}
     }
 
+    if (!session && raw.includes("bep1979_qrsess_")) {
+      const match = raw.match(/bep1979_qrsess_[a-f0-9]+/i);
+      if (match) {
+        session = qrSessionStore.get(match[0]);
+      }
+    }
+
     if (!session) {
       return res.status(404).json({
         success: false,
@@ -1880,7 +1882,110 @@ router.post("/qr/session/scan", requireAuth, async (req, res) => {
   }
 });
 
-// 4. POST /api/auth/qr/session/confirm (requireAuth - Mobile app calls when user taps Confirm)
+// 4. POST /api/auth/qr/session/scan-image (requireAuth - Mobile app uploads camera photo)
+router.post("/qr/session/scan-image", requireAuth, (req, res) => {
+  avatarUpload.single("image")(req, res, async (uploadErr) => {
+    if (uploadErr) {
+      return res.status(400).json({ success: false, message: uploadErr.message || "Tệp ảnh không hợp lệ" });
+    }
+    if (!req.file || !req.file.buffer) {
+      return res.status(400).json({ success: false, message: "Vui lòng chụp rõ mã QR trên màn hình" });
+    }
+
+    try {
+      cleanupQrSessions();
+
+      const formData = new FormData();
+      const blob = new Blob([req.file.buffer], { type: req.file.mimetype || "image/jpeg" });
+      formData.append("file", blob, req.file.originalname || "qr.jpg");
+
+      const qrApiRes = await fetch("https://api.qrserver.com/v1/read-qr-code/", {
+        method: "POST",
+        body: formData,
+        signal: AbortSignal.timeout(12000)
+      });
+
+      const qrApiData = await qrApiRes.json().catch(() => null);
+      let decodedText = "";
+      if (Array.isArray(qrApiData) && qrApiData[0]?.symbol?.[0]?.data) {
+        decodedText = qrApiData[0].symbol[0].data.trim();
+      }
+
+      if (!decodedText) {
+        return res.status(400).json({
+          success: false,
+          message: "Không tìm thấy mã QR trong ảnh. Vui lòng căn chỉnh camera vào giữa khung mã QR hoặc dùng cách nhập mã 6 số."
+        });
+      }
+
+      let session = qrSessionStore.get(decodedText) || qrShortCodeSessionStore.get(decodedText);
+      if (!session && (decodedText.startsWith("{") || decodedText.includes("bep1979"))) {
+        try {
+          const parsed = JSON.parse(decodedText);
+          if (parsed.sessionId) session = qrSessionStore.get(parsed.sessionId);
+          else if (parsed.shortCode) session = qrShortCodeSessionStore.get(parsed.shortCode);
+        } catch (_) {}
+      }
+      if (!session && decodedText.includes("bep1979_qrsess_")) {
+        const match = decodedText.match(/bep1979_qrsess_[a-f0-9]+/i);
+        if (match) session = qrSessionStore.get(match[0]);
+      }
+
+      if (!session) {
+        return res.status(404).json({
+          success: false,
+          message: "Mã QR đã hết hạn hoặc không tồn tại. Vui lòng bấm làm mới trên Web."
+        });
+      }
+
+      if (session.expiresAt <= Date.now()) {
+        qrSessionStore.delete(session.sessionId);
+        qrShortCodeSessionStore.delete(session.shortCode);
+        return res.status(400).json({
+          success: false,
+          message: "Mã QR đã hết hạn. Vui lòng tải lại mã mới trên Web."
+        });
+      }
+
+      const [users] = await db.query(
+        "SELECT id, fullname, email, username, avatar, role, is_active FROM users WHERE id = ? LIMIT 1",
+        [req.user.id]
+      );
+
+      if (users.length === 0 || !users[0].is_active) {
+        return res.status(403).json({
+          success: false,
+          message: "Tài khoản của bạn đã bị khóa hoặc không hợp lệ"
+        });
+      }
+
+      session.status = "scanned";
+      session.scannedBy = users[0].id;
+      session.scannedUser = {
+        fullname: users[0].fullname,
+        email: users[0].email,
+        avatar: users[0].avatar
+      };
+
+      return res.json({
+        success: true,
+        sessionId: session.sessionId,
+        shortCode: session.shortCode,
+        message: "Nhận diện mã QR thành công!",
+        device: "Website Bếp 1979",
+        user: publicUser(users[0])
+      });
+    } catch (scanErr) {
+      console.error("QR image scan error:", scanErr);
+      return res.status(500).json({
+        success: false,
+        message: "Không thể đọc mã từ hình ảnh. Bạn có thể nhập mã 6 số bên dưới mã QR."
+      });
+    }
+  });
+});
+
+// 5. POST /api/auth/qr/session/confirm (requireAuth - Mobile app calls when user taps Confirm)
 router.post("/qr/session/confirm", requireAuth, async (req, res) => {
   try {
     cleanupQrSessions();
@@ -1897,6 +2002,13 @@ router.post("/qr/session/confirm", requireAuth, async (req, res) => {
           session = qrShortCodeSessionStore.get(parsed.shortCode);
         }
       } catch (_) {}
+    }
+
+    if (!session && raw.includes("bep1979_qrsess_")) {
+      const match = raw.match(/bep1979_qrsess_[a-f0-9]+/i);
+      if (match) {
+        session = qrSessionStore.get(match[0]);
+      }
     }
 
     if (!session) {
@@ -1945,10 +2057,14 @@ router.post("/qr/session/confirm", requireAuth, async (req, res) => {
   }
 });
 
-// 5. POST /api/auth/qr/session/reject (requireAuth - Mobile app calls when user taps Decline)
+// 6. POST /api/auth/qr/session/reject (requireAuth - Mobile app calls when user taps Decline)
 router.post("/qr/session/reject", requireAuth, (req, res) => {
   const raw = String(req.body?.sessionId || req.body?.code || "").trim();
-  const session = qrSessionStore.get(raw) || qrShortCodeSessionStore.get(raw);
+  let session = qrSessionStore.get(raw) || qrShortCodeSessionStore.get(raw);
+  if (!session && raw.includes("bep1979_qrsess_")) {
+    const match = raw.match(/bep1979_qrsess_[a-f0-9]+/i);
+    if (match) session = qrSessionStore.get(match[0]);
+  }
 
   if (session) {
     session.status = "rejected";
