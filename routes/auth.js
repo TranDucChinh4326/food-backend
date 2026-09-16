@@ -621,21 +621,41 @@ function sendAuthResponse(res, user) {
 }
 
 async function getGoogleProfile(accessToken) {
-  const response = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
-    headers: {
-      Authorization: `Bearer ${accessToken}`
-    }
-  });
-  const profile = await response.json();
+  let profile = null;
 
-  if (!response.ok || !profile.email) {
+  try {
+    const response = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    });
+    if (response.ok) {
+      profile = await response.json();
+    }
+  } catch (_) {}
+
+  if (!profile || !profile.email) {
+    for (const tokenType of ["access_token", "id_token"]) {
+      try {
+        const tokenInfoRes = await fetch(
+          `https://oauth2.googleapis.com/tokeninfo?${tokenType}=${encodeURIComponent(accessToken)}`
+        );
+        if (tokenInfoRes.ok) {
+          profile = await tokenInfoRes.json();
+          if (profile.email) break;
+        }
+      } catch (_) {}
+    }
+  }
+
+  if (!profile || !profile.email) {
     const error = new Error("Không xác thực được tài khoản Google");
     error.status = 401;
     throw error;
   }
 
   return {
-    fullname: profile.name,
+    fullname: profile.name || profile.email.split("@")[0],
     email: profile.email,
     avatar: profile.picture || null,
     provider: "google",
