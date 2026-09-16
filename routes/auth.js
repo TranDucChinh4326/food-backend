@@ -1670,4 +1670,425 @@ router.put("/pin", requireAuth, async (req, res) => {
   }
 });
 
+// ==========================================
+// QR CODE WEB LOGIN APIs (Web creates QR -> App scans & confirms)
+// ==========================================
+
+const qrSessionStore = new Map();
+const qrShortCodeSessionStore = new Map();
+const qrLoginStore = new Map();
+const qrShortCodeStore = new Map();
+
+function cleanupQrSessions() {
+  const now = Date.now();
+  for (const [id, session] of qrSessionStore.entries()) {
+    if (session.expiresAt <= now) {
+      qrSessionStore.delete(id);
+    }
+  }
+  for (const [code, session] of qrShortCodeSessionStore.entries()) {
+    if (session.expiresAt <= now) {
+      qrShortCodeSessionStore.delete(code);
+    }
+  }
+  for (const [code, entry] of qrLoginStore.entries()) {
+    if (entry.expiresAt <= now) {
+      qrLoginStore.delete(code);
+    }
+  }
+  for (const [sCode, entry] of qrShortCodeStore.entries()) {
+    if (entry.expiresAt <= now) {
+      qrShortCodeStore.delete(sCode);
+    }
+  }
+}
+
+// 1. POST /api/auth/qr/session/init (Public - Web calls to generate dynamic QR)
+router.post("/qr/session/init", (req, res) => {
+  try {
+    cleanupQrSessions();
+
+    const sessionId = "bep1979_qrsess_" + crypto.randomBytes(16).toString("hex");
+    const shortCode = String(crypto.randomInt(100000, 1000000));
+    const expiresIn = 120; // 2 minutes TTL
+    const expiresAt = Date.now() + expiresIn * 1000;
+
+    const qrData = JSON.stringify({
+      action: "web_qr_login",
+      app: "bep1979",
+      sessionId,
+      shortCode
+    });
+
+    const session = {
+      sessionId,
+      shortCode,
+      qrData,
+      status: "pending", // 'pending' | 'scanned' | 'confirmed' | 'rejected'
+      createdAt: Date.now(),
+      expiresAt,
+      scannedBy: null,
+      scannedUser: null,
+      token: null,
+      user: null
+    };
+
+    qrSessionStore.set(sessionId, session);
+    qrShortCodeSessionStore.set(shortCode, session);
+
+    res.json({
+      success: true,
+      sessionId,
+      shortCode,
+      qrData,
+      expiresIn
+    });
+  } catch (error) {
+    console.error("QR Session Init error:", error);
+    res.status(500).json({ success: false, message: "Không thể tạo phiên đăng nhập QR" });
+  }
+});
+
+// 2. GET /api/auth/qr/session/check/:sessionId (Public - Web polls every 1.5s)
+router.get("/qr/session/check/:sessionId", (req, res) => {
+  cleanupQrSessions();
+
+  const sessionId = String(req.params.sessionId || "").trim();
+  const session = qrSessionStore.get(sessionId) || qrShortCodeSessionStore.get(sessionId);
+
+  if (!session) {
+    return res.json({
+      status: "expired",
+      message: "Phiên đăng nhập đã hết hạn hoặc không tồn tại"
+    });
+  }
+
+  if (session.expiresAt <= Date.now()) {
+    qrSessionStore.delete(session.sessionId);
+    qrShortCodeSessionStore.delete(session.shortCode);
+    return res.json({
+      status: "expired",
+      message: "Mã QR đã hết hạn. Vui lòng lấy mã mới."
+    });
+  }
+
+  const remainingSeconds = Math.max(0, Math.round((session.expiresAt - Date.now()) / 1000));
+
+  if (session.status === "confirmed") {
+    // Single-use: once verified by web, clean it up
+    qrSessionStore.delete(session.sessionId);
+    qrShortCodeSessionStore.delete(session.shortCode);
+
+    return res.json({
+      status: "confirmed",
+      token: session.token,
+      user: session.user,
+      message: "Đăng nhập thành công"
+    });
+  }
+
+  if (session.status === "scanned") {
+    return res.json({
+      status: "scanned",
+      scannedUser: session.scannedUser,
+      expiresInSeconds: remainingSeconds,
+      message: "Mã đã được quét! Đang chờ bạn xác nhận trên điện thoại..."
+    });
+  }
+
+  if (session.status === "rejected") {
+    qrSessionStore.delete(session.sessionId);
+    qrShortCodeSessionStore.delete(session.shortCode);
+    return res.json({
+      status: "rejected",
+      message: "Yêu cầu đăng nhập đã bị từ chối trên điện thoại."
+    });
+  }
+
+  return res.json({
+    status: "pending",
+    expiresInSeconds: remainingSeconds
+  });
+});
+
+// 3. POST /api/auth/qr/session/scan (requireAuth - Mobile app calls when camera scans QR)
+router.post("/qr/session/scan", requireAuth, async (req, res) => {
+  try {
+    cleanupQrSessions();
+
+    const raw = String(req.body?.sessionId || req.body?.code || req.body?.qrData || "").trim();
+    let session = qrSessionStore.get(raw) || qrShortCodeSessionStore.get(raw);
+
+    if (!session && (raw.startsWith("{") || raw.includes("bep1979"))) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed.sessionId) {
+          session = qrSessionStore.get(parsed.sessionId);
+        } else if (parsed.shortCode) {
+          session = qrShortCodeSessionStore.get(parsed.shortCode);
+        }
+      } catch (_) {}
+    }
+
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        message: "Mã QR không hợp lệ hoặc đã hết hạn"
+      });
+    }
+
+    if (session.expiresAt <= Date.now()) {
+      qrSessionStore.delete(session.sessionId);
+      qrShortCodeSessionStore.delete(session.shortCode);
+      return res.status(400).json({
+        success: false,
+        message: "Mã QR đã hết hạn. Vui lòng quét mã mới hiển thị trên Web."
+      });
+    }
+
+    const [users] = await db.query(
+      "SELECT id, fullname, email, username, avatar, role, is_active FROM users WHERE id = ? LIMIT 1",
+      [req.user.id]
+    );
+
+    if (users.length === 0 || !users[0].is_active) {
+      return res.status(403).json({
+        success: false,
+        message: "Tài khoản không hợp lệ hoặc đã bị khóa"
+      });
+    }
+
+    session.status = "scanned";
+    session.scannedBy = users[0].id;
+    session.scannedUser = {
+      fullname: users[0].fullname,
+      email: users[0].email,
+      avatar: users[0].avatar
+    };
+
+    return res.json({
+      success: true,
+      sessionId: session.sessionId,
+      shortCode: session.shortCode,
+      message: "Đã nhận diện mã QR thành công",
+      device: "Website Bếp 1979",
+      user: publicUser(users[0])
+    });
+  } catch (error) {
+    console.error("QR Session Scan error:", error);
+    res.status(500).json({ success: false, message: "Lỗi quét mã QR" });
+  }
+});
+
+// 4. POST /api/auth/qr/session/confirm (requireAuth - Mobile app calls when user taps Confirm)
+router.post("/qr/session/confirm", requireAuth, async (req, res) => {
+  try {
+    cleanupQrSessions();
+
+    const raw = String(req.body?.sessionId || req.body?.code || "").trim();
+    let session = qrSessionStore.get(raw) || qrShortCodeSessionStore.get(raw);
+
+    if (!session && raw.startsWith("{")) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed.sessionId) {
+          session = qrSessionStore.get(parsed.sessionId);
+        } else if (parsed.shortCode) {
+          session = qrShortCodeSessionStore.get(parsed.shortCode);
+        }
+      } catch (_) {}
+    }
+
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        message: "Phiên đăng nhập không tồn tại hoặc đã hết hạn"
+      });
+    }
+
+    if (session.expiresAt <= Date.now()) {
+      qrSessionStore.delete(session.sessionId);
+      qrShortCodeSessionStore.delete(session.shortCode);
+      return res.status(400).json({
+        success: false,
+        message: "Mã QR đã hết hạn. Vui lòng tải lại mã mới trên Web."
+      });
+    }
+
+    const [users] = await db.query(
+      "SELECT id, fullname, email, username, avatar, role, is_active FROM users WHERE id = ? LIMIT 1",
+      [req.user.id]
+    );
+
+    if (users.length === 0 || !users[0].is_active) {
+      return res.status(403).json({
+        success: false,
+        message: "Tài khoản của bạn đã bị khóa hoặc không hợp lệ"
+      });
+    }
+
+    const user = users[0];
+    const webToken = signToken(user);
+    touchUserLastSeen(user.id);
+
+    session.status = "confirmed";
+    session.token = webToken;
+    session.user = publicUser(user);
+
+    return res.json({
+      success: true,
+      message: "Đã xác nhận đăng nhập Website thành công!"
+    });
+  } catch (error) {
+    console.error("QR Session Confirm error:", error);
+    res.status(500).json({ success: false, message: "Lỗi xác nhận đăng nhập" });
+  }
+});
+
+// 5. POST /api/auth/qr/session/reject (requireAuth - Mobile app calls when user taps Decline)
+router.post("/qr/session/reject", requireAuth, (req, res) => {
+  const raw = String(req.body?.sessionId || req.body?.code || "").trim();
+  const session = qrSessionStore.get(raw) || qrShortCodeSessionStore.get(raw);
+
+  if (session) {
+    session.status = "rejected";
+  }
+
+  res.json({
+    success: true,
+    message: "Đã từ chối đăng nhập Website"
+  });
+});
+
+// Legacy backward-compatibility endpoints
+router.post("/qr/generate", requireAuth, async (req, res) => {
+  try {
+    cleanupQrSessions();
+
+    const [users] = await db.query(
+      "SELECT id, username, fullname, email, avatar, role, is_active FROM users WHERE id = ? LIMIT 1",
+      [req.user.id]
+    );
+
+    if (users.length === 0 || !users[0].is_active) {
+      return res.status(401).json({ message: "Tài khoản không hợp lệ hoặc đã bị khóa" });
+    }
+
+    const user = users[0];
+    const qrCode = "bep1979_qr_" + crypto.randomBytes(20).toString("hex");
+    const shortCode = String(crypto.randomInt(100000, 1000000));
+    const token = signToken(user);
+    const expiresAt = Date.now() + 5 * 60 * 1000;
+
+    const payload = {
+      userId: user.id,
+      user: publicUser(user),
+      token,
+      shortCode,
+      qrCode,
+      status: "pending",
+      expiresAt
+    };
+
+    qrLoginStore.set(qrCode, payload);
+    qrShortCodeStore.set(shortCode, payload);
+
+    const apiBase = getApiBaseUrl(req);
+    const verifyUrl = `${apiBase}/api/auth/qr/verify?code=${qrCode}`;
+
+    const qrData = JSON.stringify({
+      action: "web_login",
+      app: "bep1979",
+      code: qrCode,
+      shortCode,
+      userId: user.id,
+      username: user.username,
+      fullname: user.fullname,
+      verifyUrl
+    });
+
+    res.json({
+      success: true,
+      qrCode,
+      shortCode,
+      qrData,
+      verifyUrl,
+      expiresIn: 300,
+      user: publicUser(user)
+    });
+  } catch (error) {
+    console.error("QR Generate error:", error);
+    res.status(500).json({ message: "Không thể tạo mã QR đăng nhập" });
+  }
+});
+
+async function handleQrVerify(req, res) {
+  try {
+    cleanupQrSessions();
+
+    const code = String(req.body?.code || req.query?.code || "").trim();
+    const shortCode = String(req.body?.shortCode || req.query?.shortCode || "").trim();
+
+    let entry = qrLoginStore.get(code) || qrShortCodeStore.get(shortCode);
+
+    if (!entry) {
+      return res.status(400).json({
+        success: false,
+        message: "Mã QR hoặc mã số không hợp lệ hoặc đã hết hạn"
+      });
+    }
+
+    if (entry.expiresAt <= Date.now()) {
+      qrLoginStore.delete(entry.qrCode);
+      qrShortCodeStore.delete(entry.shortCode);
+      return res.status(400).json({
+        success: false,
+        message: "Mã QR đã hết hạn. Vui lòng lấy mã mới trên điện thoại."
+      });
+    }
+
+    const [users] = await db.query(
+      "SELECT id, username, fullname, email, avatar, role, is_active FROM users WHERE id = ? LIMIT 1",
+      [entry.userId]
+    );
+
+    if (users.length === 0 || !users[0].is_active) {
+      return res.status(403).json({
+        success: false,
+        message: "Tài khoản không tồn tại hoặc đã bị khóa"
+      });
+    }
+
+    qrLoginStore.delete(entry.qrCode);
+    qrShortCodeStore.delete(entry.shortCode);
+    touchUserLastSeen(users[0].id);
+
+    return res.json({
+      success: true,
+      message: "Đăng nhập thành công qua mã QR",
+      token: entry.token,
+      user: publicUser(users[0])
+    });
+  } catch (error) {
+    console.error("QR Verify error:", error);
+    res.status(500).json({ success: false, message: "Lỗi xác thực mã QR" });
+  }
+}
+
+router.post("/qr/verify", handleQrVerify);
+router.get("/qr/verify", handleQrVerify);
+
+router.get("/qr/status/:code", requireAuth, (req, res) => {
+  const code = String(req.params.code || "").trim();
+  const entry = qrLoginStore.get(code);
+  if (!entry) {
+    return res.json({ status: "consumed_or_expired" });
+  }
+  return res.json({
+    status: entry.status,
+    expiresInSeconds: Math.max(0, Math.round((entry.expiresAt - Date.now()) / 1000))
+  });
+});
+
 module.exports = router;
+
