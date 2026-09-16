@@ -1730,6 +1730,7 @@ router.post("/qr/session/init", (req, res) => {
 
     qrSessionStore.set(sessionId, session);
     qrShortCodeSessionStore.set(shortCode, session);
+    console.log(`[QR Init] Created session shortCode=${shortCode}, sessionId=${sessionId.slice(0,30)}..., store size=${qrSessionStore.size}`);
 
     res.json({
       success: true,
@@ -1812,6 +1813,8 @@ router.post("/qr/session/scan", requireAuth, async (req, res) => {
     cleanupQrSessions();
 
     const raw = String(req.body?.sessionId || req.body?.code || req.body?.qrData || "").trim();
+    console.log(`[QR Scan] raw="${raw}", sessionStore size=${qrSessionStore.size}, shortCodeStore size=${qrShortCodeSessionStore.size}`);
+
     let session = qrSessionStore.get(raw) || qrShortCodeSessionStore.get(raw);
 
     if (!session && (raw.startsWith("{") || raw.includes("bep1979"))) {
@@ -1833,6 +1836,7 @@ router.post("/qr/session/scan", requireAuth, async (req, res) => {
     }
 
     if (!session) {
+      console.log(`[QR Scan] Session NOT found for raw="${raw}"`);
       return res.status(404).json({
         success: false,
         message: "Mã QR không hợp lệ hoặc đã hết hạn"
