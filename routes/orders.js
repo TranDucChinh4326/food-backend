@@ -180,13 +180,15 @@ async function getDrivingDistanceKm(address, location = null) {
 
 async function calculateDistanceShippingFee(baseFee, customerAddress, customerLocation = null) {
   try {
-    const distance = await getDrivingDistanceKm(customerAddress, customerLocation);
+    const selectedLocation = normalizeDeliveryLocation(customerLocation);
+    // Khong tinh phi theo mot ket qua geocode tu dong vi ten duong co the
+    // trung o tinh khac. Chi dung khoang cach khi khach da chon toa do ban do.
+    if (!selectedLocation) return null;
+
+    const distance = await getDrivingDistanceKm(customerAddress, selectedLocation);
     if (!distance) return null;
 
     if (SHIPPING_MAX_DISTANCE_KM > 0 && distance.distanceKm > SHIPPING_MAX_DISTANCE_KM) {
-      // Chi tu choi khi day la toa do nguoi dung da chon ro rang. Ket qua
-      // geocode tu dong co the trung ten duong o tinh khac, khi do dung fallback.
-      if (!normalizeDeliveryLocation(customerLocation)) return null;
       const error = new Error(`Dia chi cach cua hang ${distance.distanceKm.toFixed(1)}km, vuot qua pham vi giao hang ${SHIPPING_MAX_DISTANCE_KM}km`);
       error.status = 400;
       throw error;
