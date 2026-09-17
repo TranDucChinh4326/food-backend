@@ -1,6 +1,6 @@
 const jwt = require("jsonwebtoken");
 const db = require("../db");
-const { isLoginSessionActive } = require("../services/auth-session");
+const { getRequestClientType, isLoginSessionActive } = require("../services/auth-session");
 const JWT_SECRET = process.env.JWT_SECRET || "foodhub_dev_secret_change_me";
 
 const ADMIN_ROLE = "ADMIN";
@@ -110,6 +110,13 @@ async function requireAuth(req, res, next) {
 
   try {
     req.user = jwt.verify(token, JWT_SECRET);
+    const requestClientType = getRequestClientType(req);
+    if (req.user.clientType !== requestClientType) {
+      return res.status(401).json({
+        code: "SESSION_PLATFORM_MISMATCH",
+        message: "Phiên đăng nhập không đúng nền tảng, vui lòng đăng nhập lại"
+      });
+    }
     const sessionIsActive = await isLoginSessionActive(
       req.user.id,
       req.user.clientType,
@@ -206,6 +213,12 @@ async function optionalAuth(req, res, next) {
 
   try {
     req.user = jwt.verify(token, JWT_SECRET);
+    const requestClientType = getRequestClientType(req);
+    if (req.user.clientType !== requestClientType) {
+      req.user = null;
+      next();
+      return;
+    }
     const sessionIsActive = await isLoginSessionActive(
       req.user.id,
       req.user.clientType,

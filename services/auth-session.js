@@ -9,9 +9,11 @@ function normalizeClientType(value) {
 }
 
 function getRequestClientType(req) {
-  return normalizeClientType(
-    req.get("x-client-type") || req.body?.clientType || req.query?.clientType
-  );
+  const explicitType = req.get("x-client-type") || req.body?.clientType || req.query?.clientType;
+  if (explicitType) return normalizeClientType(explicitType);
+
+  const userAgent = String(req.get("user-agent") || "").toLowerCase();
+  return userAgent.includes("dart/") || userAgent.includes("flutter") ? "app" : "web";
 }
 
 async function createLoginSession(userId, clientType) {
