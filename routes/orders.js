@@ -72,11 +72,16 @@ function normalizeShippingArea(value) {
 function calculateShippingAreaSurcharge(address) {
   // Tính phụ phí theo khu vực từ tỉnh/thành trong địa chỉ giao hàng.
   // Phí ship cuối cùng = phí cơ bản của hình thức giao hàng + phụ phí này.
-  const city = normalizeShippingArea(String(address || "").split("|")[0] || address);
+  const rawAddress = String(address || "").trim();
+  const city = normalizeShippingArea(rawAddress.split("|")[0] || rawAddress);
   if (!city || city.includes("vinh long")) return 0;
 
   const nearProvinces = ["can tho", "dong thap", "tien giang", "ben tre", "tra vinh", "hau giang"];
   if (nearProvinces.some(province => city.includes(province))) return 10000;
+
+  // Dia chi mot dong tren app thuong chi co so nha/ten duong, khong co tinh.
+  // Khong duoc mac dinh day la khu vuc xa va cong muc phu phi cao nhat.
+  if (!rawAddress.includes("|")) return 0;
 
   return 20000;
 }
@@ -99,6 +104,13 @@ async function geocodeDeliveryAddress(address) {
   url.searchParams.set("api_key", ORS_API_KEY);
   url.searchParams.set("text", query);
   url.searchParams.set("boundary.country", "VN");
+  url.searchParams.set("focus.point.lat", String(STORE_LAT));
+  url.searchParams.set("focus.point.lon", String(STORE_LNG));
+  if (SHIPPING_MAX_DISTANCE_KM > 0) {
+    url.searchParams.set("boundary.circle.lat", String(STORE_LAT));
+    url.searchParams.set("boundary.circle.lon", String(STORE_LNG));
+    url.searchParams.set("boundary.circle.radius", String(SHIPPING_MAX_DISTANCE_KM));
+  }
   url.searchParams.set("size", "1");
 
   const response = await fetch(url);
@@ -172,6 +184,9 @@ async function calculateDistanceShippingFee(baseFee, customerAddress, customerLo
     if (!distance) return null;
 
     if (SHIPPING_MAX_DISTANCE_KM > 0 && distance.distanceKm > SHIPPING_MAX_DISTANCE_KM) {
+      // Chi tu choi khi day la toa do nguoi dung da chon ro rang. Ket qua
+      // geocode tu dong co the trung ten duong o tinh khac, khi do dung fallback.
+      if (!normalizeDeliveryLocation(customerLocation)) return null;
       const error = new Error(`Dia chi cach cua hang ${distance.distanceKm.toFixed(1)}km, vuot qua pham vi giao hang ${SHIPPING_MAX_DISTANCE_KM}km`);
       error.status = 400;
       throw error;
