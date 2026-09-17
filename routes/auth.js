@@ -9,6 +9,7 @@ const nodemailer = require("nodemailer");
 const { v2: cloudinary } = require("cloudinary");
 const db = require("../db");
 const { requireAuth, touchUserLastSeen } = require("../middleware/auth");
+const { createLoginSession, getRequestClientType } = require("../services/auth-session");
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "foodhub_dev_secret_change_me";
@@ -46,11 +47,17 @@ if (hasCloudinaryConfig) {
   });
 }
 
-function signToken(user) {
+function signToken(user, session) {
   // Tạo JWT sau khi đăng nhập/đăng ký thành công.
   // Token chứa id/email/role để frontend gửi lại trong Authorization header cho API riêng tư.
   return jwt.sign(
-    { id: user.id, email: user.email, role: user.role },
+    {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      clientType: session.clientType,
+      sessionId: session.sessionId
+    },
     JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRES_IN || "1d" }
   );
@@ -603,13 +610,18 @@ async function createLocalUser({ username, email, password, fullname }) {
   return newUsers[0];
 }
 
-function sendAuthResponse(res, user) {
+async function issueToken(user, clientType) {
+  const session = await createLoginSession(user.id, clientType);
+  return signToken(user, session);
+}
+
+async function sendAuthResponse(req, res, user) {
   if (!user?.is_active) {
     return res.status(403).json({ message: "Tài khoản đã bị khóa" });
   }
 
   touchUserLastSeen(user.id);
-  const token = signToken(user);
+  const token = await issueToken(user, getRequestClientType(req));
   const responseUser = publicUser(user);
 
   return res.json({
@@ -707,7 +719,7 @@ router.post("/register", async (req, res) => {
     const { username, email, password, fullname } = req.body;
     const user = await createLocalUser({ username, email, password, fullname });
 
-    sendAuthResponse(res, user);
+    await sendAuthResponse(req, res, user);
   } catch (error) {
     console.error(error);
     res.status(error.status || 500).json({ message: error.message || "Lỗi server" });
@@ -943,7 +955,7 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    sendAuthResponse(res, user);
+    await sendAuthResponse(req, res, user);
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Lỗi server" });
@@ -1049,7 +1061,7 @@ router.post("/google", async (req, res) => {
       });
     }
 
-    sendAuthResponse(res, user);
+    await sendAuthResponse(req, res, user);
   } catch (error) {
     console.error(error);
     res.status(error.status || 500).json({ message: error.message || "Lỗi server" });
@@ -1078,7 +1090,7 @@ router.post("/facebook", async (req, res) => {
       });
     }
 
-    sendAuthResponse(res, user);
+    await sendAuthResponse(req, res, user);
   } catch (error) {
     console.error(error);
     res.status(error.status || 500).json({ message: error.message || "Lỗi server" });
@@ -1098,7 +1110,7 @@ router.post("/social/setup/:provider", async (req, res) => {
     const existingProviderUser = await findProviderUser(profile.provider, profile.providerId);
 
     if (existingProviderUser) {
-      return sendAuthResponse(res, existingProviderUser);
+      return await sendAuthResponse(req, res, existingProviderUser);
     }
 
     const normalizedEmail = normalizeEmail(profile.email);
@@ -1128,7 +1140,7 @@ router.post("/social/setup/:provider", async (req, res) => {
     });
 
     const [users] = await db.query("SELECT * FROM users WHERE id = ?", [user.id]);
-    sendAuthResponse(res, users[0]);
+    await sendAuthResponse(req, res, users[0]);
   } catch (error) {
     console.error(error);
     res.status(error.status || 500).json({ message: error.message || "Lỗi server" });
@@ -2044,7 +2056,7 @@ router.post("/qr/session/confirm", requireAuth, async (req, res) => {
     }
 
     const user = users[0];
-    const webToken = signToken(user);
+    const webToken = await issueToken(user, "web");
     touchUserLastSeen(user.id);
 
     session.status = "confirmed";
@@ -2097,13 +2109,11 @@ router.post("/qr/generate", requireAuth, async (req, res) => {
     const user = users[0];
     const qrCode = "bep1979_qr_" + crypto.randomBytes(20).toString("hex");
     const shortCode = String(crypto.randomInt(100000, 1000000));
-    const token = signToken(user);
     const expiresAt = Date.now() + 5 * 60 * 1000;
 
     const payload = {
       userId: user.id,
       user: publicUser(user),
-      token,
       shortCode,
       qrCode,
       status: "pending",
@@ -2183,10 +2193,12 @@ async function handleQrVerify(req, res) {
     qrShortCodeStore.delete(entry.shortCode);
     touchUserLastSeen(users[0].id);
 
+    const webToken = await issueToken(users[0], "web");
+
     return res.json({
       success: true,
       message: "Đăng nhập thành công qua mã QR",
-      token: entry.token,
+      token: webToken,
       user: publicUser(users[0])
     });
   } catch (error) {

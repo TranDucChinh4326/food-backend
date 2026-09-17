@@ -1,5 +1,6 @@
 const jwt = require("jsonwebtoken");
 const db = require("../db");
+const { isLoginSessionActive } = require("../services/auth-session");
 const JWT_SECRET = process.env.JWT_SECRET || "foodhub_dev_secret_change_me";
 
 const ADMIN_ROLE = "ADMIN";
@@ -98,7 +99,7 @@ function getToken(req) {
   return header.slice("Bearer ".length);
 }
 
-function requireAuth(req, res, next) {
+async function requireAuth(req, res, next) {
   // Bảo vệ API cần đăng nhập: đọc Bearer token, xác minh JWT và gắn payload vào req.user.
   // Các middleware phân quyền sẽ dùng req.user ở bước tiếp theo để truy vấn Database.
   const token = getToken(req);
@@ -109,6 +110,17 @@ function requireAuth(req, res, next) {
 
   try {
     req.user = jwt.verify(token, JWT_SECRET);
+    const sessionIsActive = await isLoginSessionActive(
+      req.user.id,
+      req.user.clientType,
+      req.user.sessionId
+    );
+    if (!sessionIsActive) {
+      return res.status(401).json({
+        code: "SESSION_REPLACED",
+        message: "Phiên đăng nhập này đã được thay thế bởi một lần đăng nhập mới trên cùng nền tảng"
+      });
+    }
     next();
   } catch (error) {
     res.status(401).json({
@@ -182,7 +194,7 @@ function requireAnyPermission(permissions) {
   };
 }
 
-function optionalAuth(req, res, next) {
+async function optionalAuth(req, res, next) {
   // Cho phép API chạy cả khi không đăng nhập, nhưng vẫn nhận diện user nếu token hợp lệ.
   // Chatbot dùng middleware này để lưu session theo user khi có đăng nhập và vẫn hỗ trợ khách vãng lai.
   const token = getToken(req);
@@ -194,6 +206,12 @@ function optionalAuth(req, res, next) {
 
   try {
     req.user = jwt.verify(token, JWT_SECRET);
+    const sessionIsActive = await isLoginSessionActive(
+      req.user.id,
+      req.user.clientType,
+      req.user.sessionId
+    );
+    if (!sessionIsActive) req.user = null;
   } catch (error) {
     req.user = null;
   }
