@@ -47,6 +47,14 @@ if (hasCloudinaryConfig) {
   });
 }
 
+function getTokenExpiry(user) {
+  // Tài khoản quản trị/nhân viên dùng token ngắn hạn (mặc định 2 giờ) để bỏ quên máy không bị lộ phiên.
+  // Khách hàng giữ hạn dài như cũ (JWT_EXPIRES_IN, mặc định 1 ngày).
+  const isCustomer = String(user?.role || "").toUpperCase() === "USER";
+  if (isCustomer) return process.env.JWT_EXPIRES_IN || "1d";
+  return process.env.ADMIN_JWT_EXPIRES_IN || "2h";
+}
+
 function signToken(user, session) {
   // Tạo JWT sau khi đăng nhập/đăng ký thành công.
   // Token chứa id/email/role để frontend gửi lại trong Authorization header cho API riêng tư.
@@ -59,7 +67,7 @@ function signToken(user, session) {
       sessionId: session.sessionId
     },
     JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_IN || "1d" }
+    { expiresIn: getTokenExpiry(user) }
   );
 }
 
