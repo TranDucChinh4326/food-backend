@@ -1160,8 +1160,24 @@ router.get("/vouchers/available", requireAuth, async (req, res) => {
   }
 });
 
+async function cleanupExpiredMiniGameVouchers(connection = db) {
+  try {
+    await connection.query(
+      `DELETE user_discounts
+       FROM user_discounts
+       JOIN discounts ON discounts.id = user_discounts.discount_id
+       WHERE discounts.code LIKE 'BEP79%'
+         AND DATE(user_discounts.claimed_at) < CURDATE()`
+    );
+  } catch (error) {
+    console.warn("Cleanup expired minigame vouchers skipped:", error.message);
+  }
+}
+
 router.get("/vouchers/mine", requireAuth, async (req, res) => {
   try {
+    await cleanupExpiredMiniGameVouchers(db);
+
     const [rows] = await db.query(
       `SELECT user_discounts.id AS user_discount_id, user_discounts.quantity, user_discounts.used_count AS user_used_count,
               discounts.id, discounts.code, discounts.name, discounts.discount_type, discounts.discount_value,
@@ -1279,7 +1295,7 @@ router.post("/vouchers/claim", requireAuth, async (req, res) => {
 const MINIGAME_REWARD_CATALOG = {
   SPIN10K: {
     code: "BEP79SPIN10K",
-    name: "Quà Vòng Quay: Giảm 10.000đ",
+    name: "Quà Vòng Quay: Giảm 10.000đ (Hiệu lực trong ngày)",
     discount_type: "fixed",
     discount_value: 10000,
     apply_to: "order",
@@ -1288,7 +1304,7 @@ const MINIGAME_REWARD_CATALOG = {
   },
   SPIN15K: {
     code: "BEP79SPIN15K",
-    name: "Quà Vòng Quay: Giảm 15.000đ",
+    name: "Quà Vòng Quay: Giảm 15.000đ (Hiệu lực trong ngày)",
     discount_type: "fixed",
     discount_value: 15000,
     apply_to: "order",
@@ -1297,7 +1313,7 @@ const MINIGAME_REWARD_CATALOG = {
   },
   SPIN20K: {
     code: "BEP79SPIN20K",
-    name: "Quà Vòng Quay: Giảm 20.000đ",
+    name: "Quà Vòng Quay: Giảm 20.000đ (Hiệu lực trong ngày)",
     discount_type: "fixed",
     discount_value: 20000,
     apply_to: "order",
@@ -1306,7 +1322,7 @@ const MINIGAME_REWARD_CATALOG = {
   },
   SPIN30K: {
     code: "BEP79SPIN30K",
-    name: "Quà Vòng Quay VIP: Giảm 30.000đ",
+    name: "Quà Vòng Quay VIP: Giảm 30.000đ (Hiệu lực trong ngày)",
     discount_type: "fixed",
     discount_value: 30000,
     apply_to: "order",
@@ -1315,7 +1331,7 @@ const MINIGAME_REWARD_CATALOG = {
   },
   SPIN10P: {
     code: "BEP79SPIN10P",
-    name: "Quà Vòng Quay: Giảm 10% đơn hàng",
+    name: "Quà Vòng Quay: Giảm 10% đơn hàng (Hiệu lực trong ngày)",
     discount_type: "percent",
     discount_value: 10,
     apply_to: "order",
@@ -1324,7 +1340,7 @@ const MINIGAME_REWARD_CATALOG = {
   },
   SHIP15K: {
     code: "BEP79SHIP15K",
-    name: "Quà Vòng Quay: Hỗ trợ 15.000đ phí ship",
+    name: "Quà Vòng Quay: Hỗ trợ 15.000đ phí ship (Hiệu lực trong ngày)",
     discount_type: "fixed",
     discount_value: 15000,
     apply_to: "shipping",
@@ -1333,6 +1349,42 @@ const MINIGAME_REWARD_CATALOG = {
   }
 };
 
+router.get("/minigame/status", requireAuth, async (req, res) => {
+  try {
+    await cleanupExpiredMiniGameVouchers(db);
+
+    const [claimedToday] = await db.query(
+      `SELECT user_discounts.id, user_discounts.quantity, user_discounts.used_count,
+              discounts.code, discounts.name, discounts.discount_type, discounts.discount_value,
+              discounts.apply_to, discounts.min_order, discounts.max_discount, discounts.expires_at
+       FROM user_discounts
+       JOIN discounts ON discounts.id = user_discounts.discount_id
+       WHERE user_discounts.user_id = ?
+         AND discounts.code LIKE 'BEP79%'
+         AND DATE(user_discounts.claimed_at) = CURDATE()
+       LIMIT 1`,
+      [req.user.id]
+    );
+
+    const row = claimedToday[0] || null;
+    res.json({
+      hasSpunToday: Boolean(row),
+      spinsRemaining: row ? 0 : 1,
+      rewardToday: row
+        ? {
+            code: row.code,
+            title: row.name,
+            used: Number(row.used_count || 0) >= Number(row.quantity || 1),
+            expiresAt: row.expires_at
+          }
+        : null
+    });
+  } catch (error) {
+    console.error("Minigame status error:", error);
+    res.status(500).json({ message: "Không thể tải trạng thái Vòng Quay" });
+  }
+});
+
 router.post("/minigame/claim-reward", requireAuth, async (req, res) => {
   const connection = await db.getConnection();
   try {
@@ -1340,8 +1392,9 @@ router.post("/minigame/claim-reward", requireAuth, async (req, res) => {
     const rewardTemplate = MINIGAME_REWARD_CATALOG[rewardKey] || MINIGAME_REWARD_CATALOG.SPIN15K;
 
     await connection.beginTransaction();
+    await cleanupExpiredMiniGameVouchers(connection);
 
-    // Kiểm tra xem hôm nay tài khoản đã nhận quà từ Vòng Quay chưa
+    // Kiểm tra xem hôm nay tài khoản đã quay và nhận quà chưa (1 lượt/ngày)
     const [claimedToday] = await connection.query(
       `SELECT user_discounts.id, discounts.code, discounts.name
        FROM user_discounts
@@ -1357,15 +1410,18 @@ router.post("/minigame/claim-reward", requireAuth, async (req, res) => {
       await connection.rollback();
       return res.status(400).json({
         code: "DAILY_LIMIT_REACHED",
-        message: "Hôm nay bạn đã nhận 1 phần thưởng từ Vòng Quay rồi. Hãy quay lại nhận quà vào ngày mai nhé!"
+        message: "Hôm nay bạn đã hết 1 lượt quay rồi. Lượt quay và voucher sẽ được reset mới vào 00:00 đêm nay!"
       });
     }
 
-    // Đảm bảo mã giảm giá của Vòng Quay có trong bảng discounts
+    // Tạo hoặc cập nhật mã giảm giá của Vòng Quay có thời hạn đến hết 23:59:59 hôm nay
     await connection.query(
-      `INSERT INTO discounts (code, name, discount_type, discount_value, apply_to, min_order, max_discount, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 1)
-       ON DUPLICATE KEY UPDATE is_active = 1`,
+      `INSERT INTO discounts (code, name, discount_type, discount_value, apply_to, min_order, max_discount, expires_at, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, TIMESTAMP(CURDATE(), '23:59:59'), 1)
+       ON DUPLICATE KEY UPDATE
+         name = VALUES(name),
+         expires_at = TIMESTAMP(CURDATE(), '23:59:59'),
+         is_active = 1`,
       [
         rewardTemplate.code,
         rewardTemplate.name,
@@ -1378,7 +1434,7 @@ router.post("/minigame/claim-reward", requireAuth, async (req, res) => {
     );
 
     const [discounts] = await connection.query(
-      `SELECT id, code, name, discount_type, discount_value, apply_to, min_order, max_discount, usage_limit, used_count
+      `SELECT id, code, name, discount_type, discount_value, apply_to, min_order, max_discount, usage_limit, used_count, starts_at, expires_at
        FROM discounts
        WHERE code = ?
        LIMIT 1`,
@@ -1386,17 +1442,18 @@ router.post("/minigame/claim-reward", requireAuth, async (req, res) => {
     );
 
     const discount = discounts[0];
+    // Reset quantity = 1, used_count = 0 cho ngày hôm nay
     await connection.query(
-      `INSERT INTO user_discounts (user_id, discount_id, quantity, claimed_at)
-       VALUES (?, ?, 1, NOW())
-       ON DUPLICATE KEY UPDATE quantity = quantity + 1, claimed_at = NOW()`,
+      `INSERT INTO user_discounts (user_id, discount_id, quantity, used_count, claimed_at)
+       VALUES (?, ?, 1, 0, NOW())
+       ON DUPLICATE KEY UPDATE quantity = 1, used_count = 0, claimed_at = NOW()`,
       [req.user.id, discount.id]
     );
 
     await connection.commit();
 
     res.status(201).json({
-      message: `Chúc mừng! Đã thêm voucher ${discount.code} vào ví của bạn.`,
+      message: `Chúc mừng! Đã thêm voucher ${discount.code} vào ví (Hiệu lực đến 23:59 hôm nay).`,
       discount: mapDiscountRow(discount)
     });
   } catch (error) {
