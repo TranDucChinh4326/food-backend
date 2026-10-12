@@ -1276,6 +1276,138 @@ router.post("/vouchers/claim", requireAuth, async (req, res) => {
   }
 });
 
+const MINIGAME_REWARD_CATALOG = {
+  SPIN10K: {
+    code: "BEP79SPIN10K",
+    name: "Quà Vòng Quay: Giảm 10.000đ",
+    discount_type: "fixed",
+    discount_value: 10000,
+    apply_to: "order",
+    min_order: 50000,
+    max_discount: 10000
+  },
+  SPIN15K: {
+    code: "BEP79SPIN15K",
+    name: "Quà Vòng Quay: Giảm 15.000đ",
+    discount_type: "fixed",
+    discount_value: 15000,
+    apply_to: "order",
+    min_order: 80000,
+    max_discount: 15000
+  },
+  SPIN20K: {
+    code: "BEP79SPIN20K",
+    name: "Quà Vòng Quay: Giảm 20.000đ",
+    discount_type: "fixed",
+    discount_value: 20000,
+    apply_to: "order",
+    min_order: 100000,
+    max_discount: 20000
+  },
+  SPIN30K: {
+    code: "BEP79SPIN30K",
+    name: "Quà Vòng Quay VIP: Giảm 30.000đ",
+    discount_type: "fixed",
+    discount_value: 30000,
+    apply_to: "order",
+    min_order: 120000,
+    max_discount: 30000
+  },
+  SPIN10P: {
+    code: "BEP79SPIN10P",
+    name: "Quà Vòng Quay: Giảm 10% đơn hàng",
+    discount_type: "percent",
+    discount_value: 10,
+    apply_to: "order",
+    min_order: 60000,
+    max_discount: 25000
+  },
+  SHIP15K: {
+    code: "BEP79SHIP15K",
+    name: "Quà Vòng Quay: Hỗ trợ 15.000đ phí ship",
+    discount_type: "fixed",
+    discount_value: 15000,
+    apply_to: "shipping",
+    min_order: 60000,
+    max_discount: 15000
+  }
+};
+
+router.post("/minigame/claim-reward", requireAuth, async (req, res) => {
+  const connection = await db.getConnection();
+  try {
+    const rewardKey = String(req.body.rewardKey || "SPIN15K").toUpperCase();
+    const rewardTemplate = MINIGAME_REWARD_CATALOG[rewardKey] || MINIGAME_REWARD_CATALOG.SPIN15K;
+
+    await connection.beginTransaction();
+
+    // Kiểm tra xem hôm nay tài khoản đã nhận quà từ Vòng Quay chưa
+    const [claimedToday] = await connection.query(
+      `SELECT user_discounts.id, discounts.code, discounts.name
+       FROM user_discounts
+       JOIN discounts ON discounts.id = user_discounts.discount_id
+       WHERE user_discounts.user_id = ?
+         AND discounts.code LIKE 'BEP79%'
+         AND DATE(user_discounts.claimed_at) = CURDATE()
+       LIMIT 1`,
+      [req.user.id]
+    );
+
+    if (claimedToday.length > 0) {
+      await connection.rollback();
+      return res.status(400).json({
+        code: "DAILY_LIMIT_REACHED",
+        message: "Hôm nay bạn đã nhận 1 phần thưởng từ Vòng Quay rồi. Hãy quay lại nhận quà vào ngày mai nhé!"
+      });
+    }
+
+    // Đảm bảo mã giảm giá của Vòng Quay có trong bảng discounts
+    await connection.query(
+      `INSERT INTO discounts (code, name, discount_type, discount_value, apply_to, min_order, max_discount, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+       ON DUPLICATE KEY UPDATE is_active = 1`,
+      [
+        rewardTemplate.code,
+        rewardTemplate.name,
+        rewardTemplate.discount_type,
+        rewardTemplate.discount_value,
+        rewardTemplate.apply_to,
+        rewardTemplate.min_order,
+        rewardTemplate.max_discount
+      ]
+    );
+
+    const [discounts] = await connection.query(
+      `SELECT id, code, name, discount_type, discount_value, apply_to, min_order, max_discount, usage_limit, used_count
+       FROM discounts
+       WHERE code = ?
+       LIMIT 1`,
+      [rewardTemplate.code]
+    );
+
+    const discount = discounts[0];
+    await connection.query(
+      `INSERT INTO user_discounts (user_id, discount_id, quantity, claimed_at)
+       VALUES (?, ?, 1, NOW())
+       ON DUPLICATE KEY UPDATE quantity = quantity + 1, claimed_at = NOW()`,
+      [req.user.id, discount.id]
+    );
+
+    await connection.commit();
+
+    res.status(201).json({
+      message: `Chúc mừng! Đã thêm voucher ${discount.code} vào ví của bạn.`,
+      discount: mapDiscountRow(discount)
+    });
+  } catch (error) {
+    await connection.rollback();
+    console.error("Minigame claim reward error:", error);
+    res.status(500).json({ message: "Không thể nhận phần thưởng lúc này" });
+  } finally {
+    connection.release();
+  }
+});
+
 router.post("/:id/payment/cancel", requireAuth, async (req, res) => {
   // POST /api/orders/:id/payment/cancel
   // Chỉ chính chủ đơn QR chưa thanh toán mới được hủy; khi hủy sẽ hoàn tồn kho và trả lại lượt voucher.
